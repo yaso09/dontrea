@@ -292,12 +292,36 @@ const JAVY_BROWSER_BRIDGE = `
         };
     }
 
-    // ─── CSSStyleDeclaration Proxy (element.style) ───
-    function createCSSStyleDeclarationProxy(elementHandle) {
-        return new Proxy({}, {
+    const CSSRuleConstants = {
+        STYLE_RULE: 1,
+        CHARSET_RULE: 2,
+        IMPORT_RULE: 3,
+        MEDIA_RULE: 4,
+        FONT_FACE_RULE: 5,
+        PAGE_RULE: 6,
+        KEYFRAMES_RULE: 7,
+        KEYFRAME_RULE: 8,
+        NAMESPACE_RULE: 10,
+        SUPPORTS_RULE: 12
+    };
+
+    // ─── CSSStyleDeclaration Proxy (element.style & getComputedStyle) ───
+    function createCSSStyleDeclarationProxy(elementHandle, isReadOnly = false) {
+        const target = {
+            __handle__: elementHandle,
+            __type__: 'CSSStyleDeclaration',
+            toString() { return '[object CSSStyleDeclaration]'; }
+        };
+
+        return new Proxy(target, {
             get(t, prop) {
+                if (prop === '__handle__') return t.__handle__;
+                if (prop === '__type__') return t.__type__;
+                if (prop === 'then') return undefined;
+
                 if (prop === 'setProperty') {
                     return function(p, val, priority) {
+                        if (isReadOnly) return;
                         __wireCall({ op: 'STYLE_SET_PROP', h: elementHandle, prop: p, val, priority });
                     };
                 }
@@ -307,11 +331,31 @@ const JAVY_BROWSER_BRIDGE = `
                         return res.result || '';
                     };
                 }
+                if (prop === 'getPropertyPriority') {
+                    return function(p) {
+                        const res = __wireCall({ op: 'STYLE_GET_PRIORITY', h: elementHandle, prop: p });
+                        return res.result || '';
+                    };
+                }
                 if (prop === 'removeProperty') {
                     return function(p) {
+                        if (isReadOnly) return '';
                         const res = __wireCall({ op: 'STYLE_REMOVE_PROP', h: elementHandle, prop: p });
                         return res.result || '';
                     };
+                }
+                if (prop === 'item') {
+                    return function(idx) {
+                        const res = __wireCall({ op: 'STYLE_ITEM', h: elementHandle, index: idx });
+                        return res.result || '';
+                    };
+                }
+                if (prop === 'length') {
+                    const res = __wireCall({ op: 'STYLE_LENGTH', h: elementHandle });
+                    return Number(res.result) || 0;
+                }
+                if (prop === 'parentRule') {
+                    return null;
                 }
                 if (prop === 'cssText') {
                     const res = __wireCall({ op: 'STYLE_GET', h: elementHandle, prop: 'cssText' });
@@ -321,6 +365,7 @@ const JAVY_BROWSER_BRIDGE = `
                 return res.result || '';
             },
             set(t, prop, val) {
+                if (isReadOnly) return true;
                 __wireCall({ op: 'STYLE_SET', h: elementHandle, prop: String(prop), val: String(val) });
                 return true;
             }
@@ -345,10 +390,58 @@ const JAVY_BROWSER_BRIDGE = `
                 if (prop in EventConstants) return EventConstants[prop];
                 if (prop in MediaConstants) return MediaConstants[prop];
                 if (prop in FileReaderConstants) return FileReaderConstants[prop];
+                if (prop in CSSRuleConstants) return CSSRuleConstants[prop];
 
                 if (prop === 'classList') return createDOMTokenListProxy(t.__handle__);
-                if (prop === 'style') return createCSSStyleDeclarationProxy(t.__handle__);
+                if (prop === 'style') return createCSSStyleDeclarationProxy(t.__handle__, false);
                 if (prop === 'dataset') return createDatasetProxy(t.__handle__);
+
+                if (prop === 'getComputedStyle') {
+                    return function(elt, pseudoElt) {
+                        const res = __wireCall({
+                            op: 'GET_COMPUTED_STYLE',
+                            elt: elt && elt.__handle__,
+                            pseudo: pseudoElt || null
+                        });
+                        return createCSSStyleDeclarationProxy(res.result.$h, true);
+                    };
+                }
+
+                if (prop === 'matchMedia') {
+                    return function(query) {
+                        const res = __wireCall({
+                            op: 'MATCH_MEDIA',
+                            query: String(query)
+                        });
+                        return getOrCreateProxy(res.result.$h, 'MediaQueryList');
+                    };
+                }
+
+                if (prop === 'getBoundingClientRect') {
+                    return function() {
+                        const res = __wireCall({ op: 'GET_BOUNDING_CLIENT_RECT', h: t.__handle__ });
+                        return getOrCreateProxy(res.result.$h, 'DOMRect');
+                    };
+                }
+
+                if (prop === 'getClientRects') {
+                    return function() {
+                        const res = __wireCall({ op: 'GET_CLIENT_RECTS', h: t.__handle__ });
+                        return getOrCreateProxy(res.result.$h, 'DOMRectList');
+                    };
+                }
+
+                if (prop === 'animate') {
+                    return function(keyframes, options) {
+                        const res = __wireCall({
+                            op: 'ANIMATE',
+                            h: t.__handle__,
+                            keyframes: serializeArg(keyframes),
+                            options: serializeArg(options)
+                        });
+                        return getOrCreateProxy(res.result.$h, 'Animation');
+                    };
+                }
 
                 if (prop === 'addEventListener') {
                     return function(type, listener, options) {
@@ -790,6 +883,102 @@ const JAVY_BROWSER_BRIDGE = `
         });
     } catch(e) {}
 
+    // ─── Task 03: Geometry & CSSOM Constructors (DOMRect, DOMPoint, DOMMatrix, CSSStyleSheet) ───
+    function DOMRect(x, y, width, height) {
+        if (!new.target) throw new TypeError("Failed to construct 'DOMRect': Please use the 'new' operator");
+        const res = __wireCall({
+            op: 'NEW_CONSTRUCT',
+            h: 1,
+            method: 'DOMRect',
+            args: [Number(x || 0), Number(y || 0), Number(width || 0), Number(height || 0)]
+        });
+        return getOrCreateProxy(res.result.$h, 'DOMRect');
+    }
+    DOMRect.fromRect = function(other) {
+        other = other || {};
+        return new DOMRect(other.x || 0, other.y || 0, other.width || 0, other.height || 0);
+    };
+    try {
+        Object.defineProperty(DOMRect, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && (instance.__type__ === 'DOMRect' || instance.__type__ === 'DOMRectReadOnly')),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function DOMPoint(x, y, z, w) {
+        if (!new.target) throw new TypeError("Failed to construct 'DOMPoint': Please use the 'new' operator");
+        const res = __wireCall({
+            op: 'NEW_CONSTRUCT',
+            h: 1,
+            method: 'DOMPoint',
+            args: [Number(x || 0), Number(y || 0), Number(z || 0), Number(w !== undefined ? w : 1)]
+        });
+        return getOrCreateProxy(res.result.$h, 'DOMPoint');
+    }
+    DOMPoint.fromPoint = function(other) {
+        other = other || {};
+        return new DOMPoint(other.x || 0, other.y || 0, other.z || 0, other.w !== undefined ? other.w : 1);
+    };
+    try {
+        Object.defineProperty(DOMPoint, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && (instance.__type__ === 'DOMPoint' || instance.__type__ === 'DOMPointReadOnly')),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function DOMMatrix(init) {
+        if (!new.target) throw new TypeError("Failed to construct 'DOMMatrix': Please use the 'new' operator");
+        const args = init !== undefined ? [init] : [];
+        const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'DOMMatrix', args });
+        return getOrCreateProxy(res.result.$h, 'DOMMatrix');
+    }
+    DOMMatrix.fromMatrix = function(other) { return new DOMMatrix(other); };
+    try {
+        Object.defineProperty(DOMMatrix, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && (instance.__type__ === 'DOMMatrix' || instance.__type__ === 'DOMMatrixReadOnly')),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function CSSStyleSheet(options) {
+        if (!new.target) throw new TypeError("Failed to construct 'CSSStyleSheet': Please use the 'new' operator");
+        const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'CSSStyleSheet', args: [serializeArg(options || {})] });
+        return getOrCreateProxy(res.result.$h, 'CSSStyleSheet');
+    }
+    try {
+        Object.defineProperty(CSSStyleSheet, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.__type__ === 'CSSStyleSheet'),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function createCSSRuleClass(className) {
+        function CSSRuleConstructor() {
+            throw new TypeError("Illegal constructor");
+        }
+        Object.assign(CSSRuleConstructor, CSSRuleConstants);
+        try {
+            Object.defineProperty(CSSRuleConstructor, Symbol.hasInstance, {
+                value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.__type__ && instance.__type__.startsWith('CSS')),
+                configurable: true
+            });
+        } catch(e) {}
+        return CSSRuleConstructor;
+    }
+
+    function createEmptyClass(className) {
+        function Constructor() {
+            throw new TypeError("Illegal constructor");
+        }
+        try {
+            Object.defineProperty(Constructor, Symbol.hasInstance, {
+                value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.__type__ === className),
+                configurable: true
+            });
+        } catch(e) {}
+        return Constructor;
+    }
+
     // ─── Auxiliary Interface Constructors (NodeFilter, Range) ───
     function createNodeFilter() {
         function NodeFilterConstructor() {}
@@ -853,6 +1042,32 @@ const JAVY_BROWSER_BRIDGE = `
     global.File = File;
     global.FileReader = FileReader;
 
+    // Task 03 Global Classes & APIs
+    global.DOMRect = DOMRect;
+    global.DOMRectReadOnly = DOMRect;
+    global.DOMPoint = DOMPoint;
+    global.DOMPointReadOnly = DOMPoint;
+    global.DOMMatrix = DOMMatrix;
+    global.DOMMatrixReadOnly = DOMMatrix;
+    global.DOMRectList = createEmptyClass('DOMRectList');
+    global.CSSStyleSheet = CSSStyleSheet;
+    global.CSSRule = createCSSRuleClass('CSSRule');
+    global.CSSStyleRule = createCSSRuleClass('CSSStyleRule');
+    global.CSSMediaRule = createCSSRuleClass('CSSMediaRule');
+    global.CSSKeyframesRule = createCSSRuleClass('CSSKeyframesRule');
+    global.CSSKeyframeRule = createCSSRuleClass('CSSKeyframeRule');
+    global.CSSSupportsRule = createCSSRuleClass('CSSSupportsRule');
+    global.CSSStyleDeclaration = createEmptyClass('CSSStyleDeclaration');
+    global.MediaQueryList = createEmptyClass('MediaQueryList');
+    global.Animation = createEmptyClass('Animation');
+
+    global.getComputedStyle = function(elt, pseudo) {
+        return global.window.getComputedStyle(elt, pseudo);
+    };
+    global.matchMedia = function(query) {
+        return global.window.matchMedia(query);
+    };
+
     // Root Proxies: Handle 1 = window, Handle 2 = document
     global.window = getOrCreateProxy(1, 'Window');
     global.document = getOrCreateProxy(2, 'Document');
@@ -902,6 +1117,12 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                             let typeName = 'Object';
                             if (obj === window) typeName = 'Window';
                             else if (obj === document) typeName = 'Document';
+                            else if (obj instanceof CSSStyleDeclaration) typeName = 'CSSStyleDeclaration';
+                            else if (obj instanceof DOMRect) typeName = 'DOMRect';
+                            else if (obj instanceof DOMPoint) typeName = 'DOMPoint';
+                            else if (obj instanceof DOMMatrix) typeName = 'DOMMatrix';
+                            else if (typeof MediaQueryList !== 'undefined' && obj instanceof MediaQueryList) typeName = 'MediaQueryList';
+                            else if (typeof Animation !== 'undefined' && obj instanceof Animation) typeName = 'Animation';
                             else if (obj.constructor && obj.constructor.name) typeName = obj.constructor.name;
                             return { $h: id, $t: typeName };
                         }
@@ -992,17 +1213,49 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                                         } else if (cmd.op === 'CLASSLIST_REPLACE') {
                                             response.result = target.classList.replace(cmd.oldToken, cmd.newToken);
                                         } else if (cmd.op === 'STYLE_GET') {
-                                            response.result = target.style[cmd.prop];
+                                            const s = (target && target.style) ? target.style : target;
+                                            response.result = s[cmd.prop];
                                         } else if (cmd.op === 'STYLE_SET') {
-                                            target.style[cmd.prop] = cmd.val;
+                                            const s = (target && target.style) ? target.style : target;
+                                            s[cmd.prop] = cmd.val;
                                             response.result = true;
                                         } else if (cmd.op === 'STYLE_SET_PROP') {
-                                            target.style.setProperty(cmd.prop, cmd.val, cmd.priority);
+                                            const s = (target && target.style) ? target.style : target;
+                                            s.setProperty(cmd.prop, cmd.val, cmd.priority);
                                             response.result = true;
                                         } else if (cmd.op === 'STYLE_GET_PROP') {
-                                            response.result = target.style.getPropertyValue(cmd.prop);
+                                            const s = (target && target.style) ? target.style : target;
+                                            response.result = s.getPropertyValue(cmd.prop);
+                                        } else if (cmd.op === 'STYLE_GET_PRIORITY') {
+                                            const s = (target && target.style) ? target.style : target;
+                                            response.result = s.getPropertyPriority(cmd.prop);
                                         } else if (cmd.op === 'STYLE_REMOVE_PROP') {
-                                            response.result = target.style.removeProperty(cmd.prop);
+                                            const s = (target && target.style) ? target.style : target;
+                                            response.result = s.removeProperty(cmd.prop);
+                                        } else if (cmd.op === 'STYLE_ITEM') {
+                                            const s = (target && target.style) ? target.style : target;
+                                            response.result = s.item(cmd.index);
+                                        } else if (cmd.op === 'STYLE_LENGTH') {
+                                            const s = (target && target.style) ? target.style : target;
+                                            response.result = s.length;
+                                        } else if (cmd.op === 'GET_COMPUTED_STYLE') {
+                                            const el = handleToObject.get(cmd.elt);
+                                            const cs = window.getComputedStyle(el, cmd.pseudo || undefined);
+                                            response.result = register(cs);
+                                        } else if (cmd.op === 'MATCH_MEDIA') {
+                                            const mql = window.matchMedia(cmd.query);
+                                            response.result = register(mql);
+                                        } else if (cmd.op === 'GET_BOUNDING_CLIENT_RECT') {
+                                            const rect = target.getBoundingClientRect();
+                                            response.result = register(rect);
+                                        } else if (cmd.op === 'GET_CLIENT_RECTS') {
+                                            const rects = target.getClientRects();
+                                            response.result = register(rects);
+                                        } else if (cmd.op === 'ANIMATE') {
+                                            const kf = resolve(cmd.keyframes);
+                                            const opt = resolve(cmd.options);
+                                            const anim = target.animate(kf, opt);
+                                            response.result = register(anim);
                                         } else if (cmd.op === 'EVAL') {
                                             const raw = (0, eval)(cmd.code);
                                             response.result = register(raw);
