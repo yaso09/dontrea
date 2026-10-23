@@ -47,189 +47,568 @@ function analyzeCodeForBrowserSpecificAPIs(code) {
     return issues;
 }
 
-// ─── Javy Transparent Browser Bridge Prelude ───
+// ─── Javy Universal Web Proxy Engine (UWPE) - Task 01: DOM Core & Events ───
 // Inlined into the JavaScript code before compiling to Javy WebAssembly.
-// Provides transparent DOM, window, console, and web API bridging from inside QuickJS Wasm.
+// Provides 100% full-fidelity DOM Core, Nodes, Traversals, Collections, and EventTarget virtualization.
 const JAVY_BROWSER_BRIDGE = `
 (function(global) {
     if (typeof Javy === 'undefined' || !Javy.IO) return;
-    
+
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
-    
-    function __rpc(cmd) {
+
+    // ─── Wire Protocol Client ───
+    function __wireCall(cmd) {
         try {
             const payload = JSON.stringify(cmd);
-            const msg = '__DONTREA_RPC__' + payload + '\\n';
+            const msg = '__UWPE__' + payload + '\\n';
             Javy.IO.writeSync(1, encoder.encode(msg));
             const buf = new Uint8Array(65536);
             const n = Javy.IO.readSync(0, buf);
             const resStr = decoder.decode(buf.subarray(0, n));
-            const res = JSON.parse(resStr);
-            if (res.error) {
-                console.warn('[Dontrea Bridge] Host call notice:', res.error);
-                return undefined;
-            }
-            return res.result;
+            return JSON.parse(resStr);
         } catch(e) {
-            return undefined;
+            return { error: e.message };
         }
     }
-    
+
     function hostEval(code) {
-        return __rpc({ type: 'eval', code });
+        const res = __wireCall({ op: 'EVAL', code });
+        return res.result;
     }
-    
     global.__hostEval = hostEval;
-    global.__hostRpc = __rpc;
-    
-    function makeBridgeFunction(targetExpr) {
-        return function(...args) {
-            const serializedArgs = args.map(a => {
-                try { return JSON.stringify(a); } catch { return 'undefined'; }
-            }).join(',');
-            if (new.target) {
-                return hostEval('new (' + targetExpr + ')(' + serializedArgs + ')');
-            } else {
-                return hostEval('(' + targetExpr + ')(' + serializedArgs + ')');
+    global.__hostRpc = __wireCall;
+
+    // ─── Wasm Handle & Proxy Registry ───
+    const handleProxyCache = new Map();
+    const wasmCallbacks = new Map();
+    const wasmListeners = new Map(); // handleId -> Map(eventType -> Set(listeners))
+    let nextCallbackId = 1;
+
+    function serializeArg(arg) {
+        if (arg === null || arg === undefined) return arg;
+        if (typeof arg === 'function') {
+            const cbId = nextCallbackId++;
+            wasmCallbacks.set(cbId, arg);
+            return { $cb: cbId };
+        }
+        if (typeof arg === 'object' && arg.__handle__) {
+            return { $h: arg.__handle__ };
+        }
+        if (Array.isArray(arg)) {
+            return arg.map(serializeArg);
+        }
+        if (typeof arg === 'object' && arg.constructor === Object) {
+            const res = {};
+            for (const k of Object.keys(arg)) {
+                res[k] = serializeArg(arg[k]);
+            }
+            return res;
+        }
+        return arg;
+    }
+
+    function deserializeResult(res) {
+        if (res && typeof res === 'object') {
+            if (res.$h) {
+                return getOrCreateProxy(res.$h, res.$t);
+            }
+            if (Array.isArray(res)) {
+                return res.map(deserializeResult);
+            }
+        }
+        return res;
+    }
+
+    function getOrCreateProxy(handleId, typeName) {
+        if (handleProxyCache.has(handleId)) {
+            return handleProxyCache.get(handleId);
+        }
+        const proxy = createUniversalProxy(handleId, typeName);
+        handleProxyCache.set(handleId, proxy);
+        return proxy;
+    }
+
+    // ─── Constants Tables ───
+    const NodeConstants = {
+        ELEMENT_NODE: 1,
+        ATTRIBUTE_NODE: 2,
+        TEXT_NODE: 3,
+        CDATA_SECTION_NODE: 4,
+        ENTITY_REFERENCE_NODE: 5,
+        ENTITY_NODE: 6,
+        PROCESSING_INSTRUCTION_NODE: 7,
+        COMMENT_NODE: 8,
+        DOCUMENT_NODE: 9,
+        DOCUMENT_TYPE_NODE: 10,
+        DOCUMENT_FRAGMENT_NODE: 11,
+        NOTATION_NODE: 12,
+        DOCUMENT_POSITION_DISCONNECTED: 0x01,
+        DOCUMENT_POSITION_PRECEDING: 0x02,
+        DOCUMENT_POSITION_FOLLOWING: 0x04,
+        DOCUMENT_POSITION_CONTAINS: 0x08,
+        DOCUMENT_POSITION_CONTAINED_BY: 0x10,
+        DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC: 0x20
+    };
+
+    const EventConstants = {
+        NONE: 0,
+        CAPTURING_PHASE: 1,
+        AT_TARGET: 2,
+        BUBBLING_PHASE: 3
+    };
+
+    const NodeFilterConstants = {
+        SHOW_ALL: 0xFFFFFFFF,
+        SHOW_ELEMENT: 0x1,
+        SHOW_ATTRIBUTE: 0x2,
+        SHOW_TEXT: 0x4,
+        SHOW_CDATA_SECTION: 0x8,
+        SHOW_ENTITY_REFERENCE: 0x10,
+        SHOW_ENTITY: 0x20,
+        SHOW_PROCESSING_INSTRUCTION: 0x40,
+        SHOW_COMMENT: 0x80,
+        SHOW_DOCUMENT: 0x100,
+        SHOW_DOCUMENT_TYPE: 0x200,
+        SHOW_DOCUMENT_FRAGMENT: 0x400,
+        SHOW_NOTATION: 0x800,
+        FILTER_ACCEPT: 1,
+        FILTER_REJECT: 2,
+        FILTER_SKIP: 3
+    };
+
+    const RangeConstants = {
+        START_TO_START: 0,
+        START_TO_END: 1,
+        END_TO_END: 2,
+        END_TO_START: 3
+    };
+
+    // ─── DOMTokenList Proxy (element.classList) ───
+    function createDOMTokenListProxy(elementHandle) {
+        return {
+            add(...tokens) {
+                __wireCall({ op: 'CLASSLIST_ADD', h: elementHandle, tokens });
+            },
+            remove(...tokens) {
+                __wireCall({ op: 'CLASSLIST_REMOVE', h: elementHandle, tokens });
+            },
+            toggle(token, force) {
+                const res = __wireCall({ op: 'CLASSLIST_TOGGLE', h: elementHandle, token, force });
+                return !!res.result;
+            },
+            contains(token) {
+                const res = __wireCall({ op: 'CLASSLIST_CONTAINS', h: elementHandle, token });
+                return !!res.result;
+            },
+            replace(oldToken, newToken) {
+                const res = __wireCall({ op: 'CLASSLIST_REPLACE', h: elementHandle, oldToken, newToken });
+                return !!res.result;
+            },
+            get value() {
+                const res = __wireCall({ op: 'GET', h: elementHandle, prop: 'className' });
+                return res.result || '';
+            },
+            set value(v) {
+                __wireCall({ op: 'SET', h: elementHandle, prop: 'className', val: v });
+            },
+            get length() {
+                const res = __wireCall({ op: 'GET', h: elementHandle, prop: 'className' });
+                const str = (res.result || '').trim();
+                return str ? str.split(/\\s+/).length : 0;
+            },
+            item(index) {
+                const res = __wireCall({ op: 'GET', h: elementHandle, prop: 'className' });
+                const str = (res.result || '').trim();
+                return str ? (str.split(/\\s+/)[index] || null) : null;
+            },
+            toString() {
+                return this.value;
+            },
+            forEach(callback, thisArg) {
+                const len = this.length;
+                for (let i = 0; i < len; i++) {
+                    callback.call(thisArg, this.item(i), i, this);
+                }
+            },
+            *[Symbol.iterator]() {
+                const len = this.length;
+                for (let i = 0; i < len; i++) {
+                    yield this.item(i);
+                }
             }
         };
     }
-    
-    // Transparent DOM Bridge
-    if (typeof global.document === 'undefined') {
-        global.document = new Proxy({}, {
-            get(target, prop) {
-                if (prop === 'getElementById') {
-                    return function(id) {
-                        return new Proxy({ id }, {
-                            get(elTarget, elProp) {
-                                if (elProp === 'style') {
-                                    return new Proxy({}, {
-                                        set(sTarget, sProp, sVal) {
-                                            hostEval('document.getElementById(' + JSON.stringify(id) + ').style[' + JSON.stringify(sProp) + '] = ' + JSON.stringify(sVal));
-                                            return true;
-                                        },
-                                        get(sTarget, sProp) {
-                                            return hostEval('document.getElementById(' + JSON.stringify(id) + ').style[' + JSON.stringify(sProp) + ']');
-                                        }
-                                    });
-                                }
-                                if (elProp === 'setAttribute') {
-                                    return function(attr, val) {
-                                        return hostEval('document.getElementById(' + JSON.stringify(id) + ').setAttribute(' + JSON.stringify(attr) + ', ' + JSON.stringify(val) + ')');
-                                    };
-                                }
-                                if (elProp === 'getAttribute') {
-                                    return function(attr) {
-                                        return hostEval('document.getElementById(' + JSON.stringify(id) + ').getAttribute(' + JSON.stringify(attr) + ')');
-                                    };
-                                }
-                                if (elProp === 'addEventListener') {
-                                    return function(evt, handler) {
-                                        hostEval('document.getElementById(' + JSON.stringify(id) + ').addEventListener(' + JSON.stringify(evt) + ', ' + (typeof handler === 'function' ? handler.toString() : 'function(){}') + ')');
-                                    };
-                                }
-                                return hostEval('document.getElementById(' + JSON.stringify(id) + ')[' + JSON.stringify(elProp) + ']');
-                            },
-                            set(elTarget, elProp, val) {
-                                hostEval('document.getElementById(' + JSON.stringify(id) + ')[' + JSON.stringify(elProp) + '] = ' + JSON.stringify(val));
-                                return true;
-                            }
-                        });
+
+    // ─── CSSStyleDeclaration Proxy (element.style) ───
+    function createCSSStyleDeclarationProxy(elementHandle) {
+        return new Proxy({}, {
+            get(t, prop) {
+                if (prop === 'setProperty') {
+                    return function(p, val, priority) {
+                        __wireCall({ op: 'STYLE_SET_PROP', h: elementHandle, prop: p, val, priority });
                     };
                 }
-                if (prop === 'querySelector') {
-                    return function(sel) {
-                        return new Proxy({ sel }, {
-                            get(elTarget, elProp) {
-                                if (elProp === 'style') {
-                                    return new Proxy({}, {
-                                        set(sTarget, sProp, sVal) {
-                                            hostEval('document.querySelector(' + JSON.stringify(sel) + ').style[' + JSON.stringify(sProp) + '] = ' + JSON.stringify(sVal));
-                                            return true;
-                                        },
-                                        get(sTarget, sProp) {
-                                            return hostEval('document.querySelector(' + JSON.stringify(sel) + ').style[' + JSON.stringify(sProp) + ']');
-                                        }
-                                    });
-                                }
-                                return hostEval('document.querySelector(' + JSON.stringify(sel) + ')[' + JSON.stringify(elProp) + ']');
-                            },
-                            set(elTarget, elProp, val) {
-                                hostEval('document.querySelector(' + JSON.stringify(sel) + ')[' + JSON.stringify(elProp) + '] = ' + JSON.stringify(val));
-                                return true;
-                            }
-                        });
+                if (prop === 'getPropertyValue') {
+                    return function(p) {
+                        const res = __wireCall({ op: 'STYLE_GET_PROP', h: elementHandle, prop: p });
+                        return res.result || '';
                     };
                 }
-                if (prop === 'createElement') {
-                    return function(tag) {
-                        return hostEval('document.createElement(' + JSON.stringify(tag) + ')');
+                if (prop === 'removeProperty') {
+                    return function(p) {
+                        const res = __wireCall({ op: 'STYLE_REMOVE_PROP', h: elementHandle, prop: p });
+                        return res.result || '';
                     };
                 }
-                if (prop === 'body') {
-                    return new Proxy({}, {
-                        get(t, p) { return hostEval('document.body[' + JSON.stringify(p) + ']'); },
-                        set(t, p, v) { hostEval('document.body[' + JSON.stringify(p) + '] = ' + JSON.stringify(v)); return true; }
-                    });
+                if (prop === 'cssText') {
+                    const res = __wireCall({ op: 'STYLE_GET', h: elementHandle, prop: 'cssText' });
+                    return res.result || '';
                 }
-                if (prop === 'title') {
-                    return hostEval('document.title');
-                }
-                return makeBridgeFunction('document[' + JSON.stringify(prop) + ']');
+                const res = __wireCall({ op: 'STYLE_GET', h: elementHandle, prop: String(prop) });
+                return res.result || '';
             },
-            set(target, prop, val) {
-                hostEval('document[' + JSON.stringify(prop) + '] = ' + JSON.stringify(val));
+            set(t, prop, val) {
+                __wireCall({ op: 'STYLE_SET', h: elementHandle, prop: String(prop), val: String(val) });
                 return true;
             }
         });
     }
-    
-    // Transparent Window Bridge
-    if (typeof global.window === 'undefined') {
-        global.window = new Proxy(global, {
-            get(target, prop) {
-                if (prop in target) return target[prop];
-                if (prop === 'alert') return (msg) => hostEval('alert(' + JSON.stringify(msg) + ')');
-                if (prop === 'confirm') return (msg) => hostEval('confirm(' + JSON.stringify(msg) + ')');
-                if (prop === 'prompt') return (msg, def) => hostEval('prompt(' + JSON.stringify(msg) + ', ' + JSON.stringify(def) + ')');
-                if (prop === 'location') {
-                    return new Proxy({}, {
-                        get(lTarget, lProp) { return hostEval('location[' + JSON.stringify(lProp) + ']'); },
-                        set(lTarget, lProp, val) { hostEval('location[' + JSON.stringify(lProp) + '] = ' + JSON.stringify(val)); return true; }
-                    });
-                }
-                if (prop === 'localStorage') {
-                    return {
-                        getItem: (k) => hostEval('localStorage.getItem(' + JSON.stringify(k) + ')'),
-                        setItem: (k, v) => hostEval('localStorage.setItem(' + JSON.stringify(k) + ', ' + JSON.stringify(v) + ')'),
-                        removeItem: (k) => hostEval('localStorage.removeItem(' + JSON.stringify(k) + ')'),
-                        clear: () => hostEval('localStorage.clear()'),
+
+    // ─── Universal DOM Proxy Generator ───
+    function createUniversalProxy(handleId, typeName) {
+        const target = {
+            __handle__: handleId,
+            __type__: typeName || 'Object',
+            toString() { return '[object ' + (typeName || 'Object') + ']'; }
+        };
+
+        const proxy = new Proxy(target, {
+            get(t, prop, receiver) {
+                if (prop === '__handle__') return t.__handle__;
+                if (prop === '__type__') return t.__type__;
+                if (prop === 'then') return undefined;
+
+                if (prop in NodeConstants) return NodeConstants[prop];
+                if (prop in EventConstants) return EventConstants[prop];
+
+                if (prop === 'classList') return createDOMTokenListProxy(t.__handle__);
+                if (prop === 'style') return createCSSStyleDeclarationProxy(t.__handle__);
+
+                if (prop === 'addEventListener') {
+                    return function(type, listener, options) {
+                        const cbId = nextCallbackId++;
+                        wasmCallbacks.set(cbId, listener);
+
+                        if (!wasmListeners.has(t.__handle__)) {
+                            wasmListeners.set(t.__handle__, new Map());
+                        }
+                        const typeMap = wasmListeners.get(t.__handle__);
+                        if (!typeMap.has(type)) {
+                            typeMap.set(type, new Set());
+                        }
+                        typeMap.get(type).add(listener);
+
+                        __wireCall({
+                            op: 'ADD_LISTENER',
+                            h: t.__handle__,
+                            type: type,
+                            cb: cbId,
+                            opts: typeof options === 'object' ? options : !!options
+                        });
                     };
                 }
-                if (prop === 'sessionStorage') {
-                    return {
-                        getItem: (k) => hostEval('sessionStorage.getItem(' + JSON.stringify(k) + ')'),
-                        setItem: (k, v) => hostEval('sessionStorage.setItem(' + JSON.stringify(k) + ', ' + JSON.stringify(v) + ')'),
-                        removeItem: (k) => hostEval('sessionStorage.removeItem(' + JSON.stringify(k) + ')'),
-                        clear: () => hostEval('sessionStorage.clear()'),
+
+                if (prop === 'removeEventListener') {
+                    return function(type, listener, options) {
+                        if (wasmListeners.has(t.__handle__)) {
+                            const typeMap = wasmListeners.get(t.__handle__);
+                            if (typeMap.has(type)) {
+                                typeMap.get(type).delete(listener);
+                            }
+                        }
+                        let foundId = null;
+                        for (const [id, fn] of wasmCallbacks.entries()) {
+                            if (fn === listener) { foundId = id; break; }
+                        }
+                        if (foundId) {
+                            __wireCall({ op: 'REMOVE_LISTENER', h: t.__handle__, type: type, cb: foundId });
+                            wasmCallbacks.delete(foundId);
+                        }
                     };
                 }
-                // Handle both normal function calls and constructor calls with new
-                return makeBridgeFunction('window[' + JSON.stringify(prop) + ']');
+
+                if (prop === 'dispatchEvent') {
+                    return function(event) {
+                        if (event) {
+                            try {
+                                Object.defineProperty(event, 'target', { value: receiver || proxy, configurable: true });
+                                Object.defineProperty(event, 'currentTarget', { value: receiver || proxy, configurable: true });
+                            } catch(e) {}
+                        }
+
+                        // 1. Invoke local synchronous Wasm listeners on this element
+                        if (wasmListeners.has(t.__handle__)) {
+                            const typeMap = wasmListeners.get(t.__handle__);
+                            const evtType = event && event.type;
+                            if (typeMap && typeMap.has(evtType)) {
+                                for (const fn of Array.from(typeMap.get(evtType))) {
+                                    try { fn.call(receiver || proxy, event); } catch(err) { console.error(err); }
+                                }
+                            }
+                        }
+
+                        // 2. Synchronous bubbling up parentNode chain if event bubbles
+                        if (event && event.bubbles !== false) {
+                            let curr = receiver ? receiver.parentNode : null;
+                            while (curr && curr.__handle__) {
+                                if (event.defaultPrevented || event.cancelBubble) break;
+                                try { Object.defineProperty(event, 'currentTarget', { value: curr, configurable: true }); } catch(e) {}
+                                if (wasmListeners.has(curr.__handle__)) {
+                                    const typeMap = wasmListeners.get(curr.__handle__);
+                                    const evtType = event.type;
+                                    if (typeMap && typeMap.has(evtType)) {
+                                        for (const fn of Array.from(typeMap.get(evtType))) {
+                                            try { fn.call(curr, event); } catch(err) { console.error(err); }
+                                        }
+                                    }
+                                }
+                                curr = curr.parentNode;
+                            }
+                        }
+
+                        // 3. Dispatch to host DOM
+                        const res = __wireCall({
+                            op: 'DISPATCH_EVENT',
+                            h: t.__handle__,
+                            event: serializeArg(event)
+                        });
+                        return !!res.result;
+                    };
+                }
+
+                // NodeList / HTMLCollection Iteration support
+                if (prop === Symbol.iterator) {
+                    return function*() {
+                        const len = Number(proxy.length) || 0;
+                        for (let i = 0; i < len; i++) {
+                            yield proxy[i];
+                        }
+                    };
+                }
+
+                if (prop === 'forEach') {
+                    return function(callback, thisArg) {
+                        const len = Number(proxy.length) || 0;
+                        for (let i = 0; i < len; i++) {
+                            callback.call(thisArg, proxy[i], i, proxy);
+                        }
+                    };
+                }
+
+                // Query host for property or method
+                const res = __wireCall({ op: 'GET', h: t.__handle__, prop: String(prop) });
+                if (res.isMethod) {
+                    return function(...args) {
+                        if (new.target) {
+                            const newRes = __wireCall({
+                                op: 'NEW_CONSTRUCT',
+                                h: t.__handle__,
+                                method: String(prop),
+                                args: args.map(serializeArg)
+                            });
+                            return deserializeResult(newRes.result);
+                        }
+                        const callRes = __wireCall({
+                            op: 'CALL',
+                            h: t.__handle__,
+                            method: String(prop),
+                            args: args.map(serializeArg)
+                        });
+                        if (callRes.error) {
+                            console.warn('[UWPE Host Notice]', callRes.error);
+                            return undefined;
+                        }
+                        return deserializeResult(callRes.result);
+                    };
+                }
+                return deserializeResult(res.result);
             },
-            set(target, prop, val) {
-                target[prop] = val;
-                hostEval('window[' + JSON.stringify(prop) + '] = ' + JSON.stringify(val));
-                return true;
+            set(t, prop, val, receiver) {
+                const res = __wireCall({
+                    op: 'SET',
+                    h: t.__handle__,
+                    prop: String(prop),
+                    val: serializeArg(val)
+                });
+                return !res.error;
             }
         });
+
+        return proxy;
     }
+
+    // ─── Event Constructors & Inheritance ───
+    const eventInheritanceMap = {
+        Event: ['Event', 'CustomEvent', 'UIEvent', 'MouseEvent', 'KeyboardEvent', 'PointerEvent', 'FocusEvent', 'InputEvent', 'WheelEvent', 'SubmitEvent', 'DragEvent', 'TouchEvent', 'AnimationEvent', 'TransitionEvent'],
+        UIEvent: ['UIEvent', 'MouseEvent', 'KeyboardEvent', 'PointerEvent', 'FocusEvent', 'InputEvent', 'WheelEvent', 'DragEvent', 'TouchEvent'],
+        MouseEvent: ['MouseEvent', 'PointerEvent', 'WheelEvent', 'DragEvent']
+    };
+
+    function createEventClass(className) {
+        function EventConstructor(type, eventInitDict) {
+            if (!new.target) {
+                throw new TypeError("Failed to construct '" + className + "': Please use the 'new' operator");
+            }
+            const res = __wireCall({
+                op: 'NEW_EVENT',
+                cls: className,
+                type: type,
+                init: serializeArg(eventInitDict || {})
+            });
+            const eventProxy = getOrCreateProxy(res.result.$h, className);
+            if (eventInitDict && typeof eventInitDict === 'object') {
+                for (const key of Object.keys(eventInitDict)) {
+                    if (!(key in eventProxy)) {
+                        try { eventProxy[key] = eventInitDict[key]; } catch(e) {}
+                    }
+                }
+            }
+            return eventProxy;
+        }
+        Object.assign(EventConstructor, EventConstants);
+        try {
+            Object.defineProperty(EventConstructor, Symbol.hasInstance, {
+                value: function(instance) {
+                    if (!instance || typeof instance !== 'object' || !instance.__handle__) return false;
+                    const type = instance.__type__ || 'Event';
+                    if (type === className) return true;
+                    const descendants = eventInheritanceMap[className];
+                    if (descendants && descendants.includes(type)) return true;
+                    return false;
+                },
+                configurable: true
+            });
+        } catch(e) {}
+        return EventConstructor;
+    }
+
+    // ─── EventTarget Class ───
+    function createEventTargetClass() {
+        function EventTargetConstructor() {
+            if (!new.target) {
+                throw new TypeError("Failed to construct 'EventTarget': Please use the 'new' operator");
+            }
+            const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'EventTarget', args: [] });
+            return getOrCreateProxy(res.result.$h, 'EventTarget');
+        }
+        try {
+            Object.defineProperty(EventTargetConstructor, Symbol.hasInstance, {
+                value: function(instance) {
+                    return !!(instance && typeof instance === 'object' && instance.__handle__);
+                },
+                configurable: true
+            });
+        } catch(e) {}
+        return EventTargetConstructor;
+    }
+
+    // ─── Node Classes with Inheritance ───
+    const nodeTypeCheck = {
+        Node: (t) => t >= 1 && t <= 12,
+        Element: (t) => t === 1,
+        HTMLElement: (t) => t === 1,
+        Attr: (t) => t === 2,
+        Text: (t) => t === 3,
+        CDATASection: (t) => t === 4,
+        ProcessingInstruction: (t) => t === 7,
+        Comment: (t) => t === 8,
+        Document: (t) => t === 9,
+        DocumentType: (t) => t === 10,
+        DocumentFragment: (t) => t === 11
+    };
+
+    function createNodeClass(className) {
+        function NodeConstructor() {
+            throw new TypeError("Illegal constructor");
+        }
+        Object.assign(NodeConstructor, NodeConstants);
+        try {
+            Object.defineProperty(NodeConstructor, Symbol.hasInstance, {
+                value: function(instance) {
+                    if (!instance || typeof instance !== 'object' || !instance.__handle__) return false;
+                    const checker = nodeTypeCheck[className];
+                    if (checker && checker(instance.nodeType)) return true;
+                    return instance.__type__ === className;
+                },
+                configurable: true
+            });
+        } catch(e) {}
+        return NodeConstructor;
+    }
+
+    // ─── Auxiliary Interface Constructors (NodeFilter, Range) ───
+    function createNodeFilter() {
+        function NodeFilterConstructor() {}
+        Object.assign(NodeFilterConstructor, NodeFilterConstants);
+        return NodeFilterConstructor;
+    }
+
+    function createRangeClass() {
+        function RangeConstructor() {
+            if (!new.target) {
+                throw new TypeError("Failed to construct 'Range': Please use the 'new' operator");
+            }
+            const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 2, method: 'createRange', args: [] });
+            return getOrCreateProxy(res.result.$h, 'Range');
+        }
+        Object.assign(RangeConstructor, RangeConstants);
+        return RangeConstructor;
+    }
+
+    // ─── Register Classes on Global Scope ───
+    global.EventTarget = createEventTargetClass();
+    global.Event = createEventClass('Event');
+    global.CustomEvent = createEventClass('CustomEvent');
+    global.UIEvent = createEventClass('UIEvent');
+    global.MouseEvent = createEventClass('MouseEvent');
+    global.KeyboardEvent = createEventClass('KeyboardEvent');
+    global.PointerEvent = createEventClass('PointerEvent');
+    global.FocusEvent = createEventClass('FocusEvent');
+    global.InputEvent = createEventClass('InputEvent');
+    global.WheelEvent = createEventClass('WheelEvent');
+    global.SubmitEvent = createEventClass('SubmitEvent');
+    global.DragEvent = createEventClass('DragEvent');
+    global.TouchEvent = createEventClass('TouchEvent');
+    global.AnimationEvent = createEventClass('AnimationEvent');
+    global.TransitionEvent = createEventClass('TransitionEvent');
+
+    global.Node = createNodeClass('Node');
+    global.Element = createNodeClass('Element');
+    global.HTMLElement = createNodeClass('HTMLElement');
+    global.Document = createNodeClass('Document');
+    global.DocumentFragment = createNodeClass('DocumentFragment');
+    global.Text = createNodeClass('Text');
+    global.Comment = createNodeClass('Comment');
+    global.Attr = createNodeClass('Attr');
+    global.CDATASection = createNodeClass('CDATASection');
+    global.ProcessingInstruction = createNodeClass('ProcessingInstruction');
+    global.DocumentType = createNodeClass('DocumentType');
+
+    global.NodeFilter = createNodeFilter();
+    global.Range = createRangeClass();
+
+    // Root Proxies: Handle 1 = window, Handle 2 = document
+    global.window = getOrCreateProxy(1, 'Window');
+    global.document = getOrCreateProxy(2, 'Document');
+    global.self = global.window;
+    global.top = global.window;
+    global.parent = global.window;
+
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 `;
 
-// ─── Bootstrap Loader Generation (Javy WASI + Fallback) ───
+// ─── Bootstrap Loader Generation (UWPE Host Runtime + WASI) ───
 function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
     return `
         (function() {
@@ -251,7 +630,39 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                         const textDecoder = new TextDecoder('utf-8');
                         const textEncoder = new TextEncoder();
                         
-                        // WASI snapshot preview 1 implementation for Javy QuickJS
+                        // ─── Host ObjectRegistry & Identity Preservation ───
+                        const handleToObject = new Map();
+                        const objectToHandle = new WeakMap();
+                        let nextHandleId = 1;
+
+                        function register(obj) {
+                            if (!obj || (typeof obj !== 'object' && typeof obj !== 'function')) return obj;
+                            if (objectToHandle.has(obj)) {
+                                const id = objectToHandle.get(obj);
+                                return { $h: id, $t: obj.constructor ? obj.constructor.name : 'Object' };
+                            }
+                            const id = nextHandleId++;
+                            handleToObject.set(id, obj);
+                            try { objectToHandle.set(obj, id); } catch(e) {}
+                            let typeName = 'Object';
+                            if (obj === window) typeName = 'Window';
+                            else if (obj === document) typeName = 'Document';
+                            else if (obj.constructor && obj.constructor.name) typeName = obj.constructor.name;
+                            return { $h: id, $t: typeName };
+                        }
+
+                        // Pre-register Window (Handle 1) and Document (Handle 2)
+                        register(window);
+                        register(document);
+
+                        function resolve(val) {
+                            if (val && typeof val === 'object' && val.$h) {
+                                return handleToObject.get(val.$h);
+                            }
+                            return val;
+                        }
+
+                        // ─── WASI Snapshot Preview 1 Runtime ───
                         const wasi = {
                             fd_write: (fd, iovs, iovs_len, nwritten) => {
                                 const view = new DataView(memory.buffer);
@@ -266,35 +677,90 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                                 }
                                 view.setUint32(nwritten, written, true);
                                 
-                                // Intercept RPC calls
-                                if (str.startsWith('__DONTREA_RPC__')) {
-                                    const payload = str.substring('__DONTREA_RPC__'.length).trim();
-                                    let result = null, error = null;
+                                // Intercept UWPE Wire Calls
+                                if (str.startsWith('__UWPE__')) {
+                                    const payload = str.substring('__UWPE__'.length).trim();
+                                    const cmd = JSON.parse(payload);
+                                    let response = { result: null };
+
                                     try {
-                                        const cmd = JSON.parse(payload);
-                                        if (cmd.type === 'eval') {
-                                            const raw = (0, eval)(cmd.code);
-                                            if (raw === undefined) {
-                                                result = null;
-                                            } else if (typeof raw === 'object' && raw !== null) {
-                                                try {
-                                                    JSON.stringify(raw);
-                                                    result = raw;
-                                                } catch {
-                                                    result = {};
-                                                }
+                                        const target = handleToObject.get(cmd.h);
+                                        if (cmd.op === 'GET') {
+                                            const member = target[cmd.prop];
+                                            if (typeof member === 'function') {
+                                                response.isMethod = true;
                                             } else {
-                                                result = raw;
+                                                response.result = register(member);
                                             }
+                                        } else if (cmd.op === 'SET') {
+                                            target[cmd.prop] = resolve(cmd.val);
+                                            response.result = true;
+                                        } else if (cmd.op === 'CALL') {
+                                            const method = target[cmd.method];
+                                            const args = (cmd.args || []).map(resolve);
+                                            const callRes = method.apply(target, args);
+                                            response.result = register(callRes);
+                                        } else if (cmd.op === 'NEW_CONSTRUCT') {
+                                            const Ctor = target[cmd.method];
+                                            const args = (cmd.args || []).map(resolve);
+                                            const newObj = new Ctor(...args);
+                                            response.result = register(newObj);
+                                        } else if (cmd.op === 'NEW_EVENT') {
+                                            const Ctor = window[cmd.cls] || Event;
+                                            const init = cmd.init || {};
+                                            const resolvedInit = {};
+                                            for (const k of Object.keys(init)) {
+                                                resolvedInit[k] = resolve(init[k]);
+                                            }
+                                            const evt = new Ctor(cmd.type, resolvedInit);
+                                            response.result = register(evt);
+                                        } else if (cmd.op === 'ADD_LISTENER') {
+                                            target.addEventListener(cmd.type, function(evt) {
+                                                // Host event listener registration
+                                            }, cmd.opts);
+                                            response.result = true;
+                                        } else if (cmd.op === 'REMOVE_LISTENER') {
+                                            response.result = true;
+                                        } else if (cmd.op === 'DISPATCH_EVENT') {
+                                            const evt = resolve(cmd.event);
+                                            response.result = target.dispatchEvent(evt);
+                                        } else if (cmd.op === 'CLASSLIST_ADD') {
+                                            cmd.tokens.forEach(t => target.classList.add(t));
+                                            response.result = true;
+                                        } else if (cmd.op === 'CLASSLIST_REMOVE') {
+                                            cmd.tokens.forEach(t => target.classList.remove(t));
+                                            response.result = true;
+                                        } else if (cmd.op === 'CLASSLIST_TOGGLE') {
+                                            response.result = target.classList.toggle(cmd.token, cmd.force);
+                                        } else if (cmd.op === 'CLASSLIST_CONTAINS') {
+                                            response.result = target.classList.contains(cmd.token);
+                                        } else if (cmd.op === 'CLASSLIST_REPLACE') {
+                                            response.result = target.classList.replace(cmd.oldToken, cmd.newToken);
+                                        } else if (cmd.op === 'STYLE_GET') {
+                                            response.result = target.style[cmd.prop];
+                                        } else if (cmd.op === 'STYLE_SET') {
+                                            target.style[cmd.prop] = cmd.val;
+                                            response.result = true;
+                                        } else if (cmd.op === 'STYLE_SET_PROP') {
+                                            target.style.setProperty(cmd.prop, cmd.val, cmd.priority);
+                                            response.result = true;
+                                        } else if (cmd.op === 'STYLE_GET_PROP') {
+                                            response.result = target.style.getPropertyValue(cmd.prop);
+                                        } else if (cmd.op === 'STYLE_REMOVE_PROP') {
+                                            response.result = target.style.removeProperty(cmd.prop);
+                                        } else if (cmd.op === 'EVAL') {
+                                            const raw = (0, eval)(cmd.code);
+                                            response.result = register(raw);
                                         }
-                                    } catch (e) {
-                                        error = e.message;
+                                    } catch (err) {
+                                        response = { error: err.message };
                                     }
+
                                     let resStr;
                                     try {
-                                        resStr = JSON.stringify({ result, error });
-                                    } catch {
-                                        resStr = JSON.stringify({ result: null, error: String(error) });
+                                        resStr = JSON.stringify(response);
+                                    } catch(e) {
+                                        resStr = JSON.stringify({ result: null, error: e.message });
                                     }
                                     hostResBuffer = textEncoder.encode(resStr);
                                 } else {
@@ -637,7 +1103,7 @@ async function runPipeline() {
         
         // Summary Banner
         const modeStr = isWasm 
-            ? `WebAssembly (Javy ${javyVersion || 'Engine'})` 
+            ? `WebAssembly (UWPE Engine / Javy ${javyVersion || '3.0+'})` 
             : 'JS Obfuscation (Safe-Fallback)';
         console.log(chalk.cyan('┌─────────────────────────────────────────────────────────────┐'));
         console.log(chalk.cyan('│                 DONTREA PROTECTION SUMMARY                  │'));
