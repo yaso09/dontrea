@@ -578,6 +578,52 @@ const JAVY_BROWSER_BRIDGE = `
                     };
                 }
 
+                // Handle 1 (Window) Self-references and BOM Singletons
+                if (t.__handle__ === 1) {
+                    if (prop === 'window' || prop === 'self' || prop === 'top' || prop === 'parent' || prop === 'frames') {
+                        return proxy;
+                    }
+                    if (prop === 'document') {
+                        return getOrCreateProxy(2, 'Document');
+                    }
+                    if (prop === 'location') {
+                        return getOrCreateProxy(3, 'Location');
+                    }
+                    if (prop === 'navigator') {
+                        return getOrCreateProxy(4, 'Navigator');
+                    }
+                    if (prop === 'history') {
+                        return getOrCreateProxy(5, 'History');
+                    }
+                    if (prop === 'screen') {
+                        return getOrCreateProxy(6, 'Screen');
+                    }
+                    if (prop === 'performance') {
+                        return getOrCreateProxy(7, 'Performance');
+                    }
+                    if (prop === 'atob') return global.atob;
+                    if (prop === 'btoa') return global.btoa;
+                    if (prop === 'setTimeout') return global.setTimeout;
+                    if (prop === 'clearTimeout') return global.clearTimeout;
+                    if (prop === 'setInterval') return global.setInterval;
+                    if (prop === 'clearInterval') return global.clearInterval;
+                    if (prop === 'requestAnimationFrame') return global.requestAnimationFrame;
+                    if (prop === 'cancelAnimationFrame') return global.cancelAnimationFrame;
+                    if (prop === 'queueMicrotask') return global.queueMicrotask;
+                    if (prop === 'URL') return global.URL;
+                    if (prop === 'URLSearchParams') return global.URLSearchParams;
+                }
+
+                // Handle 7 (Performance)
+                if (t.__handle__ === 7) {
+                    if (prop === 'now') {
+                        return function() {
+                            const pRes = __wireCall({ op: 'PERFORMANCE_NOW' });
+                            return Number(pRes.result);
+                        };
+                    }
+                }
+
                 // Query host for property or method
                 const res = __wireCall({ op: 'GET', h: t.__handle__, prop: String(prop) });
                 if (res.isMethod) {
@@ -607,6 +653,10 @@ const JAVY_BROWSER_BRIDGE = `
                 return deserializeResult(res.result);
             },
             set(t, prop, val, receiver) {
+                if (t.__handle__ === 3 && prop === 'href') {
+                    const res = __wireCall({ op: 'SET', h: 3, prop: 'href', val: String(val) });
+                    return !res.error;
+                }
                 const res = __wireCall({
                     op: 'SET',
                     h: t.__handle__,
@@ -1068,12 +1118,429 @@ const JAVY_BROWSER_BRIDGE = `
         return global.window.matchMedia(query);
     };
 
-    // Root Proxies: Handle 1 = window, Handle 2 = document
+    // ─── Task 04: Base64 Encoding & Decoding ───
+    const b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+
+    function btoa(input) {
+        const str = String(input);
+        let output = '';
+        for (let block = 0, charCode, idx = 0, map = b64chars;
+            str.charAt(idx | 0) || (map = '=', idx % 1);
+            output += map.charAt(63 & block >> 8 - idx % 1 * 8)) {
+            charCode = str.charCodeAt(idx += 3/4);
+            if (charCode > 0xFF) {
+                throw new Error("'btoa' failed: The string to be encoded contains characters outside of the Latin1 range.");
+            }
+            block = block << 8 | charCode;
+        }
+        return output;
+    }
+
+    function atob(input) {
+        const str = String(input).replace(/[=]+$/, '');
+        if (str.length % 4 === 1) {
+            throw new Error("'atob' failed: The string to be decoded is not correctly encoded.");
+        }
+        let output = '';
+        for (let bc = 0, bs = 0, buffer, idx = 0;
+            buffer = str.charAt(idx++);
+            ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer,
+                bc++ % 4) ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0
+        ) {
+            buffer = b64chars.indexOf(buffer);
+        }
+        return output;
+    }
+
+    // ─── Task 04: URLSearchParams & URL Implementations ───
+    function URLSearchParamsPolyfill(init) {
+        this._entries = [];
+        if (typeof init === 'string') {
+            let str = init;
+            if (str.startsWith('?')) str = str.slice(1);
+            if (str.length > 0) {
+                const pairs = str.split('&');
+                for (const pair of pairs) {
+                    if (!pair) continue;
+                    const idx = pair.indexOf('=');
+                    if (idx !== -1) {
+                        const k = decodeURIComponent(pair.slice(0, idx).split('+').join(' '));
+                        const v = decodeURIComponent(pair.slice(idx + 1).split('+').join(' '));
+                        this._entries.push([k, v]);
+                    } else {
+                        this._entries.push([decodeURIComponent(pair.split('+').join(' ')), '']);
+                    }
+                }
+            }
+        } else if (init && typeof init === 'object') {
+            if (init._entries) {
+                this._entries = init._entries.map(e => [e[0], e[1]]);
+            } else if (Array.isArray(init)) {
+                for (const item of init) this._entries.push([String(item[0]), String(item[1])]);
+            } else if (typeof init[Symbol.iterator] === 'function') {
+                for (const item of init) this._entries.push([String(item[0]), String(item[1])]);
+            } else {
+                for (const k of Object.keys(init)) this._entries.push([String(k), String(init[k])]);
+            }
+        }
+    }
+    URLSearchParamsPolyfill.prototype.append = function(name, value) {
+        this._entries.push([String(name), String(value)]);
+    };
+    URLSearchParamsPolyfill.prototype.delete = function(name) {
+        const k = String(name);
+        this._entries = this._entries.filter(e => e[0] !== k);
+    };
+    URLSearchParamsPolyfill.prototype.get = function(name) {
+        const k = String(name);
+        const entry = this._entries.find(e => e[0] === k);
+        return entry ? entry[1] : null;
+    };
+    URLSearchParamsPolyfill.prototype.getAll = function(name) {
+        const k = String(name);
+        return this._entries.filter(e => e[0] === k).map(e => e[1]);
+    };
+    URLSearchParamsPolyfill.prototype.has = function(name) {
+        const k = String(name);
+        return this._entries.some(e => e[0] === k);
+    };
+    URLSearchParamsPolyfill.prototype.set = function(name, value) {
+        const k = String(name), v = String(value);
+        let found = false;
+        this._entries = this._entries.filter(e => {
+            if (e[0] === k) {
+                if (!found) { e[1] = v; found = true; return true; }
+                return false;
+            }
+            return true;
+        });
+        if (!found) this._entries.push([k, v]);
+    };
+    URLSearchParamsPolyfill.prototype.sort = function() {
+        this._entries.sort((a, b) => a[0].localeCompare(b[0]));
+    };
+    URLSearchParamsPolyfill.prototype.forEach = function(callback, thisArg) {
+        for (const [k, v] of this._entries) {
+            callback.call(thisArg, v, k, this);
+        }
+    };
+    URLSearchParamsPolyfill.prototype.keys = function*() {
+        for (const [k] of this._entries) yield k;
+    };
+    URLSearchParamsPolyfill.prototype.values = function*() {
+        for (const [, v] of this._entries) yield v;
+    };
+    URLSearchParamsPolyfill.prototype.entries = function*() {
+        for (const e of this._entries) yield [e[0], e[1]];
+    };
+    URLSearchParamsPolyfill.prototype[Symbol.iterator] = function() {
+        return this.entries();
+    };
+    Object.defineProperty(URLSearchParamsPolyfill.prototype, 'size', {
+        get() { return this._entries.length; }
+    });
+    URLSearchParamsPolyfill.prototype.toString = function() {
+        return this._entries.map(e => encodeURIComponent(e[0]) + '=' + encodeURIComponent(e[1])).join('&');
+    };
+
+    function parseURLParts(urlStr) {
+        let str = String(urlStr);
+        let hash = '';
+        const hashIdx = str.indexOf('#');
+        if (hashIdx !== -1) {
+            hash = str.slice(hashIdx);
+            str = str.slice(0, hashIdx);
+        }
+        let search = '';
+        const searchIdx = str.indexOf('?');
+        if (searchIdx !== -1) {
+            search = str.slice(searchIdx);
+            str = str.slice(0, searchIdx);
+        }
+        let protocol = 'http:';
+        let host = '';
+        let hostname = '';
+        let port = '';
+        let pathname = '/';
+        let username = '';
+        let password = '';
+
+        const protoIdx = str.indexOf('://');
+        if (protoIdx !== -1) {
+            protocol = str.slice(0, protoIdx + 1);
+            str = str.slice(protoIdx + 3);
+        }
+
+        const slashIdx = str.indexOf('/');
+        let authority = '';
+        if (slashIdx !== -1) {
+            authority = str.slice(0, slashIdx);
+            pathname = str.slice(slashIdx);
+        } else {
+            authority = str;
+            pathname = '/';
+        }
+
+        const atIdx = authority.indexOf('@');
+        if (atIdx !== -1) {
+            const userinfo = authority.slice(0, atIdx);
+            authority = authority.slice(atIdx + 1);
+            const colonIdx = userinfo.indexOf(':');
+            if (colonIdx !== -1) {
+                username = userinfo.slice(0, colonIdx);
+                password = userinfo.slice(colonIdx + 1);
+            } else {
+                username = userinfo;
+            }
+        }
+
+        host = authority;
+        const portColon = authority.lastIndexOf(':');
+        if (portColon !== -1 && !authority.includes(']')) {
+            hostname = authority.slice(0, portColon);
+            port = authority.slice(portColon + 1);
+        } else {
+            hostname = authority;
+        }
+
+        return { protocol, username, password, host, hostname, port, pathname, search, hash };
+    }
+
+    function URLPolyfill(url, base) {
+        if (!new.target) throw new TypeError("Failed to construct 'URL': Please use the 'new' operator");
+        let fullUrl = String(url);
+        if (base) {
+            let b = String(base);
+            if (!fullUrl.includes('://')) {
+                if (fullUrl.startsWith('/')) {
+                    const bSlash = b.indexOf('/', b.indexOf('://') + 3);
+                    const bOrigin = bSlash !== -1 ? b.slice(0, bSlash) : b;
+                    fullUrl = bOrigin + fullUrl;
+                } else {
+                    const lastSlash = b.lastIndexOf('/');
+                    if (lastSlash > 7) fullUrl = b.slice(0, lastSlash + 1) + fullUrl;
+                    else fullUrl = b + '/' + fullUrl;
+                }
+            }
+        }
+
+        const parts = parseURLParts(fullUrl);
+        this._protocol = parts.protocol;
+        this._username = parts.username;
+        this._password = parts.password;
+        this._hostname = parts.hostname;
+        this._port = parts.port;
+        this._pathname = parts.pathname;
+        if (!this._pathname.startsWith('/')) this._pathname = '/' + this._pathname;
+        this._search = parts.search;
+        this._hash = parts.hash;
+
+        const self = this;
+        this._searchParams = new URLSearchParamsPolyfill(this._search);
+        const origAppend = this._searchParams.append.bind(this._searchParams);
+        const origSet = this._searchParams.set.bind(this._searchParams);
+        const origDelete = this._searchParams.delete.bind(this._searchParams);
+        const origSort = this._searchParams.sort.bind(this._searchParams);
+
+        function sync() {
+            const qs = self._searchParams.toString();
+            self._search = qs ? '?' + qs : '';
+        }
+        this._searchParams.append = function(...args) { origAppend(...args); sync(); };
+        this._searchParams.set = function(...args) { origSet(...args); sync(); };
+        this._searchParams.delete = function(...args) { origDelete(...args); sync(); };
+        this._searchParams.sort = function(...args) { origSort(...args); sync(); };
+    }
+    Object.defineProperty(URLPolyfill.prototype, 'protocol', {
+        get() { return this._protocol; },
+        set(v) { this._protocol = String(v).endsWith(':') ? String(v) : String(v) + ':'; }
+    });
+    Object.defineProperty(URLPolyfill.prototype, 'hostname', {
+        get() { return this._hostname; },
+        set(v) { this._hostname = String(v); }
+    });
+    Object.defineProperty(URLPolyfill.prototype, 'port', {
+        get() { return this._port; },
+        set(v) { this._port = String(v); }
+    });
+    Object.defineProperty(URLPolyfill.prototype, 'host', {
+        get() { return this._hostname + (this._port ? ':' + this._port : ''); },
+        set(v) {
+            const parts = String(v).split(':');
+            this._hostname = parts[0];
+            this._port = parts[1] || '';
+        }
+    });
+    Object.defineProperty(URLPolyfill.prototype, 'pathname', {
+        get() { return this._pathname; },
+        set(v) {
+            let p = String(v);
+            if (!p.startsWith('/')) p = '/' + p;
+            this._pathname = p;
+        }
+    });
+    Object.defineProperty(URLPolyfill.prototype, 'search', {
+        get() { return this._search; },
+        set(v) {
+            let s = String(v);
+            if (s && !s.startsWith('?')) s = '?' + s;
+            this._search = s;
+            this._searchParams = new URLSearchParamsPolyfill(this._search);
+        }
+    });
+    Object.defineProperty(URLPolyfill.prototype, 'hash', {
+        get() { return this._hash; },
+        set(v) {
+            let h = String(v);
+            if (h && !h.startsWith('#')) h = '#' + h;
+            this._hash = h;
+        }
+    });
+    Object.defineProperty(URLPolyfill.prototype, 'origin', {
+        get() { return this._protocol + '//' + this.host; }
+    });
+    Object.defineProperty(URLPolyfill.prototype, 'href', {
+        get() {
+            let userinfo = this._username;
+            if (this._password) userinfo += ':' + this._password;
+            if (userinfo) userinfo += '@';
+            return this._protocol + '//' + userinfo + this.host + this._pathname + this._search + this._hash;
+        },
+        set(v) {
+            const u = new URLPolyfill(v);
+            this._protocol = u._protocol;
+            this._username = u._username;
+            this._password = u._password;
+            this._hostname = u._hostname;
+            this._port = u._port;
+            this._pathname = u._pathname;
+            this._search = u._search;
+            this._hash = u._hash;
+            this._searchParams = new URLSearchParamsPolyfill(this._search);
+        }
+    });
+    Object.defineProperty(URLPolyfill.prototype, 'searchParams', {
+        get() { return this._searchParams; }
+    });
+    URLPolyfill.prototype.toString = function() { return this.href; };
+    URLPolyfill.prototype.toJSON = function() { return this.href; };
+    URLPolyfill.createObjectURL = function(obj) {
+        const res = __wireCall({ op: 'CREATE_OBJECT_URL', blob: serializeArg(obj) });
+        return res.result;
+    };
+    URLPolyfill.revokeObjectURL = function(url) {
+        __wireCall({ op: 'REVOKE_OBJECT_URL', url: String(url) });
+    };
+
+    // ─── Task 04: Timers & RAF Wire Bridges ───
+    let nextTimerId = 1;
+    const timerCallbacks = new Map();
+
+    function setTimeout(callback, delay, ...args) {
+        const id = nextTimerId++;
+        timerCallbacks.set(id, { callback, args });
+        __wireCall({
+            op: 'SET_TIMEOUT',
+            id: id,
+            delay: Number(delay) || 0
+        });
+        return id;
+    }
+
+    function clearTimeout(id) {
+        timerCallbacks.delete(Number(id));
+        __wireCall({
+            op: 'CLEAR_TIMEOUT',
+            id: Number(id)
+        });
+    }
+
+    function setInterval(callback, delay, ...args) {
+        const id = nextTimerId++;
+        timerCallbacks.set(id, { callback, args, isInterval: true });
+        __wireCall({
+            op: 'SET_INTERVAL',
+            id: id,
+            delay: Number(delay) || 0
+        });
+        return id;
+    }
+
+    function clearInterval(id) {
+        timerCallbacks.delete(Number(id));
+        __wireCall({
+            op: 'CLEAR_INTERVAL',
+            id: Number(id)
+        });
+    }
+
+    function requestAnimationFrame(callback) {
+        const id = nextTimerId++;
+        timerCallbacks.set(id, { callback });
+        __wireCall({
+            op: 'REQUEST_ANIMATION_FRAME',
+            id: id
+        });
+        return id;
+    }
+
+    function cancelAnimationFrame(id) {
+        timerCallbacks.delete(Number(id));
+        __wireCall({
+            op: 'CANCEL_ANIMATION_FRAME',
+            id: Number(id)
+        });
+    }
+
+    function queueMicrotask(callback) {
+        if (typeof Promise !== 'undefined') {
+            Promise.resolve().then(callback);
+        } else {
+            setTimeout(callback, 0);
+        }
+    }
+
+    // ─── Task 04: BOM Classes & Globals ───
+    global.Location = createEmptyClass('Location');
+    global.History = createEmptyClass('History');
+    global.Navigator = createEmptyClass('Navigator');
+    global.Screen = createEmptyClass('Screen');
+    global.Performance = createEmptyClass('Performance');
+    global.URL = URLPolyfill;
+    global.URLSearchParams = URLSearchParamsPolyfill;
+
+    global.atob = atob;
+    global.btoa = btoa;
+    global.setTimeout = setTimeout;
+    global.clearTimeout = clearTimeout;
+    global.setInterval = setInterval;
+    global.clearInterval = clearInterval;
+    global.requestAnimationFrame = requestAnimationFrame;
+    global.cancelAnimationFrame = cancelAnimationFrame;
+    global.queueMicrotask = queueMicrotask;
+    global.requestIdleCallback = requestAnimationFrame;
+    global.cancelIdleCallback = cancelAnimationFrame;
+
+    global.alert = function(msg) { return global.window.alert(msg); };
+    global.confirm = function(msg) { return global.window.confirm(msg); };
+    global.prompt = function(msg, def) { return global.window.prompt(msg, def); };
+    global.open = function(...args) { return global.window.open(...args); };
+    global.close = function() { return global.window.close(); };
+    global.postMessage = function(...args) { return global.window.postMessage(...args); };
+
+    // Root Proxies: Handles 1..7 (Window, Document, Location, Navigator, History, Screen, Performance)
     global.window = getOrCreateProxy(1, 'Window');
     global.document = getOrCreateProxy(2, 'Document');
+    global.location = getOrCreateProxy(3, 'Location');
+    global.navigator = getOrCreateProxy(4, 'Navigator');
+    global.history = getOrCreateProxy(5, 'History');
+    global.screen = getOrCreateProxy(6, 'Screen');
+    global.performance = getOrCreateProxy(7, 'Performance');
+
     global.self = global.window;
     global.top = global.window;
     global.parent = global.window;
+    global.frames = global.window;
 
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 `;
@@ -1117,6 +1584,11 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                             let typeName = 'Object';
                             if (obj === window) typeName = 'Window';
                             else if (obj === document) typeName = 'Document';
+                            else if (obj === window.location) typeName = 'Location';
+                            else if (obj === window.navigator) typeName = 'Navigator';
+                            else if (obj === window.history) typeName = 'History';
+                            else if (obj === window.screen) typeName = 'Screen';
+                            else if (obj === window.performance) typeName = 'Performance';
                             else if (obj instanceof CSSStyleDeclaration) typeName = 'CSSStyleDeclaration';
                             else if (obj instanceof DOMRect) typeName = 'DOMRect';
                             else if (obj instanceof DOMPoint) typeName = 'DOMPoint';
@@ -1127,9 +1599,16 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                             return { $h: id, $t: typeName };
                         }
 
-                        // Pre-register Window (Handle 1) and Document (Handle 2)
+                        // Pre-register Handles 1..7 (Window, Document, Location, Navigator, History, Screen, Performance)
                         register(window);
                         register(document);
+                        register(window.location);
+                        register(window.navigator);
+                        register(window.history);
+                        register(window.screen);
+                        register(window.performance);
+
+                        const hostTimers = new Map();
 
                         function resolve(val) {
                             if (val && typeof val === 'object' && val.$h) {
@@ -1259,6 +1738,51 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                                         } else if (cmd.op === 'EVAL') {
                                             const raw = (0, eval)(cmd.code);
                                             response.result = register(raw);
+                                        } else if (cmd.op === 'SET_TIMEOUT') {
+                                            const tId = window.setTimeout(() => {
+                                                hostTimers.delete(cmd.id);
+                                            }, cmd.delay);
+                                            hostTimers.set(cmd.id, tId);
+                                            response.result = cmd.id;
+                                        } else if (cmd.op === 'CLEAR_TIMEOUT') {
+                                            const tId = hostTimers.get(cmd.id);
+                                            if (tId !== undefined) {
+                                                window.clearTimeout(tId);
+                                                hostTimers.delete(cmd.id);
+                                            }
+                                            response.result = true;
+                                        } else if (cmd.op === 'SET_INTERVAL') {
+                                            const tId = window.setInterval(() => {}, cmd.delay);
+                                            hostTimers.set(cmd.id, tId);
+                                            response.result = cmd.id;
+                                        } else if (cmd.op === 'CLEAR_INTERVAL') {
+                                            const tId = hostTimers.get(cmd.id);
+                                            if (tId !== undefined) {
+                                                window.clearInterval(tId);
+                                                hostTimers.delete(cmd.id);
+                                            }
+                                            response.result = true;
+                                        } else if (cmd.op === 'REQUEST_ANIMATION_FRAME') {
+                                            const rafId = window.requestAnimationFrame(() => {
+                                                hostTimers.delete(cmd.id);
+                                            });
+                                            hostTimers.set(cmd.id, rafId);
+                                            response.result = cmd.id;
+                                        } else if (cmd.op === 'CANCEL_ANIMATION_FRAME') {
+                                            const rafId = hostTimers.get(cmd.id);
+                                            if (rafId !== undefined) {
+                                                window.cancelAnimationFrame(rafId);
+                                                hostTimers.delete(cmd.id);
+                                            }
+                                            response.result = true;
+                                        } else if (cmd.op === 'PERFORMANCE_NOW') {
+                                            response.result = window.performance.now();
+                                        } else if (cmd.op === 'CREATE_OBJECT_URL') {
+                                            const blob = resolve(cmd.blob);
+                                            response.result = URL.createObjectURL(blob);
+                                        } else if (cmd.op === 'REVOKE_OBJECT_URL') {
+                                            URL.revokeObjectURL(cmd.url);
+                                            response.result = true;
                                         }
                                     } catch (err) {
                                         response = { error: err.message };
