@@ -8,6 +8,45 @@ const chalk = require('chalk');
 const JavaScriptObfuscator = require('javascript-obfuscator');
 const { minify } = require('html-minifier-terser');
 
+// ─── Porffor Submodule Loader ───
+const PORFFOR_SUBMODULE_PATH = path.join(__dirname, 'porffor');
+
+let porfforCompiler = null;
+let porfforCompile = null;
+let porfforSource = 'none';
+
+async function loadPorffor() {
+    // Try system-installed Porffor (npm package) first - has native binary
+    try {
+        const porfforPkg = require('porffor');
+        porfforCompile = porfforPkg;
+        try {
+            const compilerPkg = require('porffor/compiler/index.js');
+            porfforCompiler = compilerPkg;
+        } catch {}
+        porfforSource = 'system';
+        console.log(chalk.green(`[+] Porffor loaded from system package`));
+        return true;
+    } catch (e) {
+        // System package not available
+    }
+    
+    // Try submodule as reference (for development)
+    if (fs.existsSync(PORFFOR_SUBMODULE_PATH)) {
+        porfforSource = 'submodule (reference only)';
+        console.log(chalk.blue(`[i] Porffor submodule found at: ${PORFFOR_SUBMODULE_PATH}`));
+        console.log(chalk.blue(`[i] For Wasm compilation, use: git submodule update --init && cd porffor && npm install`));
+        console.log(chalk.blue(`[i] Then compile on Linux/macOS/WSL: node runtime/index.js wasm input.js output.wasm`));
+        return false; // Don't claim Wasm capability
+    }
+    
+    porfforSource = 'none';
+    console.log(chalk.yellow(`[!] Porffor not found. Wasm compilation unavailable.`));
+    console.log(chalk.blue(`[i] Install: npm install porffor`));
+    console.log(chalk.blue(`[i] Or initialize submodule: git submodule update --init --recursive`));
+    return false;
+}
+
 // ─── Static Analysis: Detect unsupported browser APIs ───
 const UNSUPPORTED_PATTERNS = [
     { pattern: /\bProxy\b/, name: 'Proxy', reason: 'Porffor only has stub implementation (traps never run)' },
@@ -218,6 +257,9 @@ const options = {
 async function runPipeline() {
     console.log(chalk.cyan.bold('\n🛡️  Dontrea Anti-Piracy Protection Pipeline starting...'));
     
+    // Load Porffor (submodule preferred, system package as fallback)
+    await loadPorffor();
+    
     if (!fs.existsSync(options.input)) {
         console.error(chalk.red(`[-] Error: Input file not found at ${options.input}`));
         process.exit(1);
@@ -307,15 +349,36 @@ async function runPipeline() {
                 process.exit(1);
             }
         }
-        // Option B: Attempt Porffor compilation (requires Porffor CLI on Linux/macOS/WSL)
-        else if (options.forceWasm || (compatIssues.length === 0 && !options.analyzeOnly)) {
-            console.log(chalk.blue(`[i] Porffor Wasm compilation requires the Porffor CLI.`));
-            console.log(chalk.blue(`[i] On Windows: Use WSL2 with 'porf wasm input.js output.wasm'`));
-            console.log(chalk.blue(`[i] On Linux/macOS: Install via 'curl -fsSL https://porffor.dev/install.sh | sh'`));
-            console.log(chalk.yellow(`[!] Wasm compilation not available in this environment. Falling back to JS obfuscation.`));
-            console.log(chalk.yellow(`[!] To use Wasm: compile separately with Porffor CLI, then use --wasm-binary`));
-            finalPayloadBase64 = Buffer.from(targetJsPayload).toString('base64');
-            isWasm = false;
+        // Option B: Attempt Porffor compilation using system package (has native binary)
+        else if ((options.forceWasm || (compatIssues.length === 0 && !options.analyzeOnly)) && porfforCompiler && porfforSource === 'system') {
+            try {
+                console.log(chalk.green(`[+] Compiling obfuscated JavaScript to WebAssembly via Porffor AOT (system)...`));
+                
+                // Use lower-level compiler API for raw Wasm bytes
+                const compileResult = porfforCompiler(targetJsPayload);
+                wasmBytes = compileResult.wasm; // Uint8Array
+                
+                if (wasmBytes && wasmBytes.length > 0) {
+                    finalPayloadBase64 = Buffer.from(wasmBytes).toString('base64');
+                    isWasm = true;
+                    console.log(chalk.green(`[✓] WebAssembly bytecode compilation successful (${wasmBytes.length} bytes).`));
+                    
+                    // Log compilation stats
+                    if (compileResult.pages) {
+                        console.log(chalk.blue(`[i] Wasm memory pages: ${compileResult.pages.size}`));
+                    }
+                    if (compileResult.funcs) {
+                        console.log(chalk.blue(`[i] Functions compiled: ${compileResult.funcs.length}`));
+                    }
+                } else {
+                    throw new Error('Porffor returned empty Wasm binary');
+                }
+            } catch (wasmError) {
+                console.log(chalk.yellow(`[!] Porffor compilation failed: ${wasmError.message}`));
+                console.log(chalk.yellow('[!] Activating Safe-Fallback Mode (JS obfuscation only).'));
+                finalPayloadBase64 = Buffer.from(targetJsPayload).toString('base64');
+                isWasm = false;
+            }
         } else {
             // Safe Fallback Mode
             if (options.analyzeOnly) {
@@ -407,10 +470,13 @@ async function runPipeline() {
         console.log(chalk.green.bold(`[✓] Dontrea pipeline successfully compiled. Output file: ${options.output}\n`));
         
         // Summary
+        const modeStr = isWasm 
+            ? `WebAssembly (Porffor AOT via ${porfforSource})` 
+            : 'JS Obfuscation (Safe-Fallback)';
         console.log(chalk.cyan('┌─────────────────────────────────────────────┐'));
         console.log(chalk.cyan('│           DONTREA PROTECTION SUMMARY        │'));
         console.log(chalk.cyan('├─────────────────────────────────────────────┤'));
-        console.log(chalk.cyan(`│ Mode: ${isWasm ? 'WebAssembly (Porffor AOT)' : 'JS Obfuscation (Safe-Fallback)'}          │`));
+        console.log(chalk.cyan(`│ Mode: ${modeStr.padEnd(41)} │`));
         console.log(chalk.cyan(`│ Chunks: ${String(partCount).padStart(2)} │ Parts: ${String(chunks.length).padStart(2)} │ Payload: ${String(finalPayloadBase64.length).padStart(6)} chars │`));
         if (compatIssues.length > 0) {
             console.log(chalk.cyan(`│ Compat Issues: ${String(compatIssues.length).padStart(2)} (${compatIssues.map(i => i.name).join(', ')}) │`));
