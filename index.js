@@ -15,35 +15,41 @@ let porfforCompiler = null;
 let porfforCompile = null;
 let porfforSource = 'none';
 
-async function loadPorffor() {
-    // Try system-installed Porffor (npm package) first - has native binary
-    try {
-        const porfforPkg = require('porffor');
-        porfforCompile = porfforPkg;
+async function loadPorffor(useSystemPorffor = false) {
+    // Try submodule first (ES module compiler) - works on all platforms for reference
+    const submoduleCompilerPath = path.join(PORFFOR_SUBMODULE_PATH, 'compiler', 'index.js');
+    const submoduleRuntimePath = path.join(PORFFOR_SUBMODULE_PATH, 'runtime', 'index.js');
+    
+    if (fs.existsSync(submoduleCompilerPath)) {
         try {
-            const compilerPkg = require('porffor/compiler/index.js');
-            porfforCompiler = compilerPkg;
-        } catch {}
-        porfforSource = 'system';
-        console.log(chalk.green(`[+] Porffor loaded from system package`));
-        return true;
-    } catch (e) {
-        // System package not available
+            // Dynamic import for ES module (works in CommonJS)
+            const compilerModule = await import('file://' + submoduleCompilerPath);
+            porfforCompiler = compilerModule.default;
+            porfforSource = 'submodule (ES module)';
+            console.log(chalk.green(`[+] Porffor compiler loaded from submodule`));
+            console.log(chalk.blue(`[i] Note: Wasm compilation requires Linux/macOS/WSL with: node runtime/index.js wasm input.js output.wasm`));
+            return true;
+        } catch (e) {
+            console.log(chalk.yellow(`[!] Failed to load Porffor submodule compiler: ${e.message}`));
+        }
     }
     
-    // Try submodule as reference (for development)
-    if (fs.existsSync(PORFFOR_SUBMODULE_PATH)) {
-        porfforSource = 'submodule (reference only)';
-        console.log(chalk.blue(`[i] Porffor submodule found at: ${PORFFOR_SUBMODULE_PATH}`));
-        console.log(chalk.blue(`[i] For Wasm compilation, use: git submodule update --init && cd porffor && npm install`));
-        console.log(chalk.blue(`[i] Then compile on Linux/macOS/WSL: node runtime/index.js wasm input.js output.wasm`));
-        return false; // Don't claim Wasm capability
+    // Check if Porffor CLI is available in PATH (Linux/macOS/WSL only)
+    const { execSync } = require('child_process');
+    try {
+        execSync('porf --version', { stdio: 'ignore' });
+        porfforSource = 'system (CLI)';
+        console.log(chalk.green(`[+] Porffor CLI found in system PATH`));
+        return true;
+    } catch {
+        // CLI not available
     }
     
     porfforSource = 'none';
-    console.log(chalk.yellow(`[!] Porffor not found. Wasm compilation unavailable.`));
-    console.log(chalk.blue(`[i] Install: npm install porffor`));
-    console.log(chalk.blue(`[i] Or initialize submodule: git submodule update --init --recursive`));
+    console.log(chalk.yellow(`[!] Porffor not found. Wasm compilation requires Linux/macOS/WSL.`));
+    console.log(chalk.blue(`[i] On Windows: Use WSL2 or pre-compile Wasm on Linux/macOS, then use --wasm-binary`));
+    console.log(chalk.blue(`[i] Initialize submodule: git submodule update --init --recursive`));
+    console.log(chalk.blue(`[i] On Linux/macOS/WSL: cd porffor && npm install && node runtime/index.js wasm input.js output.wasm`));
     return false;
 }
 
@@ -257,7 +263,7 @@ const options = {
 async function runPipeline() {
     console.log(chalk.cyan.bold('\n🛡️  Dontrea Anti-Piracy Protection Pipeline starting...'));
     
-    // Load Porffor (submodule preferred, system package as fallback)
+    // Load Porffor (submodule for reference, CLI for Wasm compilation)
     await loadPorffor();
     
     if (!fs.existsSync(options.input)) {
@@ -349,30 +355,55 @@ async function runPipeline() {
                 process.exit(1);
             }
         }
-        // Option B: Attempt Porffor compilation using system package (has native binary)
-        else if ((options.forceWasm || (compatIssues.length === 0 && !options.analyzeOnly)) && porfforCompiler && porfforSource === 'system') {
+        // Option B: Attempt Porffor compilation via CLI (Linux/macOS/WSL only)
+        else if ((options.forceWasm || (compatIssues.length === 0 && !options.analyzeOnly)) && porfforSource !== 'none' && process.platform !== 'win32') {
             try {
-                console.log(chalk.green(`[+] Compiling obfuscated JavaScript to WebAssembly via Porffor AOT (system)...`));
+                console.log(chalk.green(`[+] Compiling obfuscated JavaScript to WebAssembly via Porffor AOT (${porfforSource})...`));
                 
-                // Use lower-level compiler API for raw Wasm bytes
-                const compileResult = porfforCompiler(targetJsPayload);
-                wasmBytes = compileResult.wasm; // Uint8Array
+                // Write obfuscated JS to temp file
+                const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'dontrea-porffor-'));
+                const inputFile = path.join(tmpDir, 'input.js');
+                const outputFile = path.join(tmpDir, 'output.wasm');
+                fs.writeFileSync(inputFile, targetJsPayload);
                 
-                if (wasmBytes && wasmBytes.length > 0) {
+                // Determine porffor command
+                let porfCmd;
+                if (porfforSource.includes('submodule')) {
+                    porfCmd = path.join(PORFFOR_SUBMODULE_PATH, 'runtime', 'index.js');
+                } else {
+                    porfCmd = 'porf';
+                }
+                
+                // Run porffor wasm command (Linux/macOS/WSL only)
+                const { execSync } = require('child_process');
+                let cmd;
+                if (porfforSource.includes('submodule')) {
+                    cmd = `node "${porfCmd}" wasm "${inputFile}" "${outputFile}"`;
+                } else {
+                    cmd = `porf wasm "${inputFile}" "${outputFile}"`;
+                }
+                
+                console.log(chalk.blue(`[i] Running: ${cmd}`));
+                
+                execSync(cmd, {
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    timeout: 180000,
+                    cwd: porfforSource.includes('submodule') ? PORFFOR_SUBMODULE_PATH : undefined,
+                });
+                
+                // Read generated Wasm
+                if (fs.existsSync(outputFile)) {
+                    wasmBytes = new Uint8Array(fs.readFileSync(outputFile));
                     finalPayloadBase64 = Buffer.from(wasmBytes).toString('base64');
                     isWasm = true;
                     console.log(chalk.green(`[✓] WebAssembly bytecode compilation successful (${wasmBytes.length} bytes).`));
-                    
-                    // Log compilation stats
-                    if (compileResult.pages) {
-                        console.log(chalk.blue(`[i] Wasm memory pages: ${compileResult.pages.size}`));
-                    }
-                    if (compileResult.funcs) {
-                        console.log(chalk.blue(`[i] Functions compiled: ${compileResult.funcs.length}`));
-                    }
                 } else {
-                    throw new Error('Porffor returned empty Wasm binary');
+                    throw new Error('Porffor did not generate output.wasm');
                 }
+                
+                // Cleanup
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+                
             } catch (wasmError) {
                 console.log(chalk.yellow(`[!] Porffor compilation failed: ${wasmError.message}`));
                 console.log(chalk.yellow('[!] Activating Safe-Fallback Mode (JS obfuscation only).'));
@@ -380,6 +411,12 @@ async function runPipeline() {
                 isWasm = false;
             }
         } else {
+            // Windows or no Porffor available
+            if (process.platform === 'win32' && (options.forceWasm || (compatIssues.length === 0 && !options.analyzeOnly))) {
+                console.log(chalk.yellow(`[!] Wasm compilation not supported on Windows.`));
+                console.log(chalk.blue(`[i] Use WSL2 or pre-compile on Linux/macOS: node runtime/index.js wasm input.js output.wasm`));
+                console.log(chalk.blue(`[i] Then use: dontrea -i index.html -o protected.html --wasm-binary output.wasm`));
+            }
             // Safe Fallback Mode
             if (options.analyzeOnly) {
                 console.log(chalk.cyan('[i] Analysis complete. Exiting without compilation.'));
