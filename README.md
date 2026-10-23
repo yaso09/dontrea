@@ -1,65 +1,199 @@
 # 🛡️ Dontrea
 
-**Dontrea**, web tabanlı uygulamalarınızı, oyunlarınızı ve JavaScript kaynak kodlarınızı tersine mühendisliğe (reverse engineering) ve korsanlığa (piracy) karşı korumak için geliştirilmiş, **Denuvo** mantığıyla çalışan agresif bir güvenlik ve pipeline otomasyon aracıdır.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org/)
+[![WebAssembly](https://img.shields.io/badge/WebAssembly-Javy%20%2F%20QuickJS-purple.svg)](https://github.com/Shopify/javy)
+[![Language: Turkish](https://img.shields.io/badge/Language-T%C3%BCrk%C3%A7e-blue.svg)](README.tr.md)
 
-## 🚀 Çalışma Anatomisi
+> **[🇹🇷 Türkçe Dokümantasyon için buraya tıklayın](README.tr.md)**
 
-Dontrea, kaynak kodunuzu korumak için 5 katmanlı sarmal bir mimari kullanır:
-
-1. **JS Extraction:** Hedef HTML içerisindeki tüm inline `<script>` bloklarını ayıklar.
-2. **Advanced Obfuscation:** Ayıklanan JavaScript'i kontrol akışı düzleştirme, ölü kod enjeksiyonu ve anti-devtools tuzaklarıyla anlamsal olarak tanınmaz hale getirir.
-3. **JS-to-Wasm Compilation:** Karıştırılan JavaScript kodunu **Porffor AOT derleyicisi** kullanarak tarayıcının doğrudan işlemci seviyesinde çalıştıracağı bir WebAssembly (`.wasm`) binary array'ine dönüştürür.
-4. **Denuvo-style Code Distribution:** Üretilen şifreli byte verilerini belirlediğiniz sayıda parçaya böler ve HTML içindeki rastgele üretilmiş `id` ve `data-*` niteliklerine sahip gizli elementlerin (`div`, `span`, `p`) içerisine serpiştirir.
-5. **HTML Minification & Final Lock:** Kodları runtime'da birleştiren bootstrap yükleyiciyi ekledikten sonra tüm HTML dosyasını minify ederek tek satırlık aşırı karmaşık bir yapıya dönüştürür.
+**Dontrea** is an enterprise-grade anti-piracy, code virtualization, and anti-reverse-engineering security pipeline designed with **Denuvo-inspired architecture**. It protects web applications, browser games, and client-side JavaScript by transforming scripts into WebAssembly bytecode, distributing fragmented payloads across hidden DOM elements, and locking execution with aggressive obfuscation and anti-tamper mechanisms.
 
 ---
 
-## 📦 Kurulum
+## 📑 Table of Contents
 
-Proje dizininde bağımlılıkları yüklemek ve `dontrea` komutunu terminalinize tanımlamak için:
+- [Core Architecture](#-core-architecture)
+- [How It Works](#-how-it-works)
+- [Why Javy WebAssembly?](#-why-javy-webassembly)
+- [Smart Dual-Mode Engine](#-smart-dual-mode-engine)
+- [Prerequisites & Installation](#-prerequisites--installation)
+- [CLI Usage & Options](#-cli-usage--options)
+- [Examples](#-examples)
+- [Security Layers Deep Dive](#-security-layers-deep-dive)
+- [Troubleshooting & FAQ](#-troubleshooting--faq)
+- [License](#-license)
+
+---
+
+## 🚀 Core Architecture
+
+Dontrea operates through a **5-layer defense-in-depth pipeline**:
+
+```mermaid
+graph TD
+    A[Input HTML File] --> B[1. Inline Script Extraction & Analysis]
+    B --> C[2. AST-Level Advanced Obfuscation]
+    C --> D{Hardware/Media API Detected?}
+    D -- No / Simple DOM --> E[3A. Javy JS-to-Wasm Compiler + RPC Bridge]
+    D -- Yes e.g. AudioContext/Canvas --> F[3B. Safe-Fallback High-Security JS]
+    E --> G[4. Denuvo-Style Structural Chunk Distribution]
+    F --> G
+    G --> H[5. WASI Bootstrap Injection & HTML Minification]
+    H --> I[Protected Production HTML]
+```
+
+1. **Script Extraction & API Analysis:** Parses HTML, extracts all inline `<script>` blocks, and performs static analysis to evaluate compatibility with WebAssembly linear memory.
+2. **Aggressive JS Obfuscation:** Transforms JavaScript using Control Flow Flattening, Dead Code Injection, String Array encoding with Base64/RC4 wrappers, and Anti-DevTools locks.
+3. **JS-to-Wasm Compilation (Javy / QuickJS):** Compiles the obfuscated logic into WebAssembly bytecode via Javy, embedding a synchronous RPC bridge for transparent DOM and window proxying.
+4. **Denuvo-Style Fragment Distribution:** Slices the binary/encrypted payload into configurable chunks and scatters them into dynamically generated HTML tags (`<div>`, `<span>`, `<section>`, etc.) with randomized IDs and `data-*` attributes styled with zero-footprint stealth CSS.
+5. **Runtime WASI Bootstrap & Minification:** Embeds a self-defending bootstrap loader with an inlined `wasi_snapshot_preview1` runtime, followed by multi-pass structural HTML compression.
+
+---
+
+## 💡 Why Javy WebAssembly?
+
+Earlier compilers (such as Porffor) were experimental, limited in scope, and incompatible with native Windows environments. Dontrea leverages **[Shopify Javy](https://github.com/Shopify/javy)** (powered by Fabrice Bellard's **QuickJS** engine):
+
+| Feature | Experimental AOT (Porffor) | Javy (QuickJS Engine) |
+| :--- | :--- | :--- |
+| **Platform Support** | Linux / macOS / WSL only | **Cross-platform: Windows, macOS, Linux** |
+| **Language Features** | Limited ES subset | **Full ECMAScript 2020+ (Classes, Proxies, Async/Await, BigInt)** |
+| **Stability** | Prototype | **Production-grade (Shopify Core)** |
+| **DOM / Window Bridge** | Stubbed / Broken | **Synchronous Bi-Directional RPC Bridge** |
+| **Execution Sandbox** | Primitive memory | **Isolated Wasm Virtual Machine** |
+
+---
+
+## ⚡ Smart Dual-Mode Engine
+
+WebAssembly runs inside an isolated linear memory sandbox without direct access to operating system sound cards or GPU rendering pipelines. Dontrea features an **intelligent detection engine**:
+
+### 1. WebAssembly Mode (Default for Computational & Standard DOM Logic)
+- Compiles your JavaScript into compact WebAssembly bytecode.
+- Uses an inlined WASI preview-1 implementation for standard I/O (`console.log`, `console.error`) and high-resolution timing (`performance.now`).
+- Transparent proxying enables DOM manipulation (`document.getElementById`, `.innerHTML`, `.style.*`, `.setAttribute`, etc.) from inside Wasm.
+
+### 2. Safe-Fallback Mode (Automatic for Heavy Canvas & Audio Applications)
+- When hardware-bound browser APIs are detected (such as `AudioContext`, `webkitAudioContext`, `canvas.getContext('2d')`, or `WebGLRenderingContext`), Dontrea automatically switches to Safe-Fallback mode.
+- Avoids runtime errors (e.g. Web Audio constructor failures) while retaining maximum security: maximum obfuscation, anti-tamper traps, Denuvo fragment distribution, and single-file compression.
+- Override with `--force-wasm true` if you wish to enforce WebAssembly compilation regardless.
+
+---
+
+## 📦 Prerequisites & Installation
+
+### Requirements
+- **Node.js**: v18.0.0 or higher
+- **Javy CLI** (Recommended for Wasm compilation):
+  ```bash
+  npm install -g @shopify/javy-cli
+  ```
+  *Alternatively, download the standalone binary from [Shopify Javy Releases](https://github.com/Shopify/javy/releases) and add it to your `PATH`.*
+
+### Installation
+
+Clone the repository and install dependencies:
 
 ```bash
-# Bağımlılıkları yükleyin
+git clone https://github.com/yaso09/dontrea.git
+cd dontrea
 npm install
 
-# Komut satırına global olarak bağlayın
+# Link command globally to use 'dontrea' directly in terminal
 npm link
 ```
 
 ---
 
-## 🛠️ Kullanım ve Parametreler
+## 🛠️ CLI Usage & Options
 
-Sistemi en temel düzeyde çalıştırmak için:
+### Basic Usage
 
 ```bash
-dontrea --input index.html --output dist/protected.html --parts 8
+dontrea -i index.html -o dist/protected.html
 ```
 
-### Tüm Parametre Listesi
+### Full Options Reference
 
-| Parametre | Kısa Yol | Varsayılan | Açıklama |
-| :--- | :--- | :--- | :--- |
-| `--input` | `-i` | *Zorunlu* | Şifrelenecek kaynak HTML dosyasının yolu. |
-| `--output` | `-o` | `protected.html` | Çıktı olarak üretilecek korumalı HTML dosyasının yolu. |
-| `--parts` | `-p` | `5` | Kodun HTML içerisine kaç parçaya bölünerek dağıtılacağı. |
-| `--control-flow-flattening` | - | `false` | Kod akış karmaşıklığını açar (Performansı etkileyebilir). |
-| `--control-flow-flattening-threshold` | - | `0.75` | Akış düzleştirme uygulanma olasılık oranı (0.0 - 1.0). |
-| `--dead-code-injection` | - | `false` | Kodun arasına çalışmayan sahte/ölü kodlar ekler. |
-| `--debug-protection` | - | `false` | F12 / Geliştirici araçları açıldığında tarayıcıyı kilitler. |
-| `--debug-protection-interval` | - | `2000` | Anti-DevTools tarama sıklığı (milisaniye cinsinden). |
-| `--self-defending` | - | `false` | Kod beautify edilirse (biçimlendirilirse) kendini kilitler. |
-| `--domain-lock` | - | - | Kodun sadece belirli alan adlarında çalışmasını sağlar (örn: `site.com`). |
+| Option | Alias | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--input <path>` | `-i` | *Required* | Path to the source HTML file to protect. |
+| `--output <path>` | `-o` | `protected.html` | Path where the protected HTML will be saved. |
+| `--parts <number>` | `-p` | `5` | Number of structural DOM elements to distribute the payload across. |
+| `--control-flow-flattening <boolean>` | - | `false` | Flattens function control flow into complex state machine switch loops. |
+| `--control-flow-flattening-threshold <n>` | - | `0.75` | Probability threshold for control flow flattening (0.0 to 1.0). |
+| `--dead-code-injection <boolean>` | - | `false` | Injects decoy execution paths and dummy code blocks. |
+| `--debug-protection <boolean>` | - | `false` | Anti-DevTools defense: freezes browser tabs when DevTools (F12) are opened. |
+| `--debug-protection-interval <ms>` | - | `2000` | Frequency in milliseconds for the anti-debugger integrity checks. |
+| `--self-defending <boolean>` | - | `false` | Locks code against beautification/formatting; crashes if altered. |
+| `--domain-lock <domains...>` | - | - | Restricts execution to specified domain names (e.g. `example.com`). |
+| `--force-wasm <boolean>` | - | `false` | Enforces Wasm compilation even if hardware-bound APIs (Audio/Canvas) are found. |
+| `--no-wasm` | - | `false` | Skips WebAssembly compilation and uses Safe-Fallback JS mode directly. |
+| `--dynamic` | - | `false` | Compiles using Javy's dynamic QuickJS provider flag (`-d`) for smaller modules. |
+| `--wasm-binary <path>` | - | - | Path to a pre-compiled `.wasm` binary file to embed directly. |
 
-### Maksimum Güvenlik Örneği (Agresif Mod)
+---
 
+## 🚀 Examples
+
+### 1. Standard Web Application
 ```bash
-dontrea -i index.html -o target.html -p 12   --control-flow-flattening true   --control-flow-flattening-threshold 1.0   --dead-code-injection true   --debug-protection true   --debug-protection-interval 1000   --self-defending true   --domain-lock orneksite.com www.orneksite.com
+dontrea -i myapp.html -o index.html -p 8
+```
+
+### 2. High-Security Commercial Game / License Key Protection
+```bash
+dontrea -i game.html -o protected_game.html -p 12 \
+  --control-flow-flattening true \
+  --control-flow-flattening-threshold 1.0 \
+  --dead-code-injection true \
+  --debug-protection true \
+  --debug-protection-interval 1000 \
+  --self-defending true \
+  --domain-lock mygame.com www.mygame.com
+```
+
+### 3. Pure JavaScript Safe-Fallback Mode
+```bash
+dontrea -i index.html -o protected.html --no-wasm --self-defending true
 ```
 
 ---
 
-## ⚠️ Önemli Notlar (Savunma Perspektifi)
+## 🔒 Security Layers Deep Dive
 
-* **DOM Kısıtlamaları:** Porffor derleyicisi deneysel aşamadadır. Yoğun pencere ve DOM manipülasyonu yapan JS kodlarında derleme hatası verirse, `dontrea` otomatik olarak güvenli moda (Safe-Fallback) geçer. Bu modda kodunuz Wasm yerine maksimum ayarlarda obfuscate edilmiş JS string'i olarak parçalanır ve korunur.
-* **Performans Dengesi:** `--control-flow-flattening` ve `--dead-code-injection` özellikleri işlemci maliyetini artırır. Çok büyük web projelerinde sadece kritik iş/lisans lojiklerinizi bu araca beslemeniz önerilir.
+### 1. Denuvo-Style Data Splicing
+Rather than storing JavaScript in a `<script>` tag where reverse engineers can set breakpoints or dump memory, Dontrea divides the Base64 bytecode into $N$ parts. Each part is assigned to a dynamically generated HTML tag with cryptographic-looking IDs and non-standard attributes:
+
+```html
+<section id="dontrea-_0x7c49e2" data-node-_0x3a81f0="..." class="dontrea-hidden" aria-hidden="true"></section>
+<aside id="dontrea-_0x1b28d4" data-node-_0xe72091="..." class="dontrea-hidden" aria-hidden="true"></aside>
+```
+
+These tags are completely hidden from user view and accessibility trees using aggressive CSS overrides (`opacity: 0`, `pointer-events: none`, `z-index: -9999`).
+
+### 2. Anti-DevTools Protection
+When `--debug-protection true` is enabled, Dontrea injects an asynchronous timer loop that tests debugger latency using periodic `debugger` statements and timing analysis. If a developer opens Chrome DevTools or inspects memory, execution is trapped in an infinite recursive loop, freezing unauthorized inspection.
+
+### 3. Self-Defending Architecture
+When `--self-defending true` is active, the bootstrap loader and payload hash their own source code layout. If an attacker passes the code through a JS beautifier (Prettier, JS-Beautify) or attempts monkey-patching, the internal regular expressions detect whitespace alteration and trigger an intentional stack overflow.
+
+---
+
+## ❓ Troubleshooting & FAQ
+
+**Q: Can Dontrea protect canvas-based browser games?**  
+A: Yes! When Dontrea detects `AudioContext` or Canvas/WebGL rendering contexts, it automatically activates Safe-Fallback Mode, ensuring 60 FPS rendering, full sound synthesis, and unbroken game logic while maintaining maximum obfuscation and Denuvo chunk distribution.
+
+**Q: What if Javy is not installed on my machine?**  
+A: Dontrea detects if `javy` is present in your `PATH`. If missing, it outputs an informative message and smoothly proceeds with Safe-Fallback Mode without failing your build.
+
+**Q: Does Dontrea require a backend server?**  
+A: No. The output of Dontrea is a single, self-contained `.html` file that runs entirely on client-side browsers (Chrome, Firefox, Safari, Edge) without requiring any backend services or runtime dependencies.
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
