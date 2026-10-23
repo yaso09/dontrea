@@ -47,9 +47,9 @@ function analyzeCodeForBrowserSpecificAPIs(code) {
     return issues;
 }
 
-// ─── Javy Universal Web Proxy Engine (UWPE) - Task 01: DOM Core & Events ───
+// ─── Javy Universal Web Proxy Engine (UWPE) - Task 01 & Task 02: DOM Core, HTML5 & Forms ───
 // Inlined into the JavaScript code before compiling to Javy WebAssembly.
-// Provides 100% full-fidelity DOM Core, Nodes, Traversals, Collections, and EventTarget virtualization.
+// Provides 100% full-fidelity DOM Core, HTML5 Elements, Forms, Media, and File API virtualization.
 const JAVY_BROWSER_BRIDGE = `
 (function(global) {
     if (typeof Javy === 'undefined' || !Javy.IO) return;
@@ -184,6 +184,58 @@ const JAVY_BROWSER_BRIDGE = `
         END_TO_START: 3
     };
 
+    const MediaConstants = {
+        NETWORK_EMPTY: 0,
+        NETWORK_IDLE: 1,
+        NETWORK_LOADING: 2,
+        NETWORK_NO_SOURCE: 3,
+        HAVE_NOTHING: 0,
+        HAVE_METADATA: 1,
+        HAVE_CURRENT_DATA: 2,
+        HAVE_FUTURE_DATA: 3,
+        HAVE_ENOUGH_DATA: 4
+    };
+
+    const FileReaderConstants = {
+        EMPTY: 0,
+        LOADING: 1,
+        DONE: 2
+    };
+
+    // ─── Dataset Proxy (element.dataset) ───
+    function camelToKebab(str) {
+        return 'data-' + str.replace(/([A-Z])/g, '-$1').toLowerCase();
+    }
+
+    function createDatasetProxy(elementHandle) {
+        return new Proxy({}, {
+            get(t, prop) {
+                if (typeof prop !== 'string' || prop === 'then') return undefined;
+                const attr = camelToKebab(prop);
+                const res = __wireCall({ op: 'CALL', h: elementHandle, method: 'getAttribute', args: [attr] });
+                return res.result !== null ? String(res.result) : undefined;
+            },
+            set(t, prop, val) {
+                if (typeof prop !== 'string') return false;
+                const attr = camelToKebab(prop);
+                __wireCall({ op: 'CALL', h: elementHandle, method: 'setAttribute', args: [attr, String(val)] });
+                return true;
+            },
+            deleteProperty(t, prop) {
+                if (typeof prop !== 'string') return false;
+                const attr = camelToKebab(prop);
+                __wireCall({ op: 'CALL', h: elementHandle, method: 'removeAttribute', args: [attr] });
+                return true;
+            },
+            has(t, prop) {
+                if (typeof prop !== 'string') return false;
+                const attr = camelToKebab(prop);
+                const res = __wireCall({ op: 'CALL', h: elementHandle, method: 'hasAttribute', args: [attr] });
+                return !!res.result;
+            }
+        });
+    }
+
     // ─── DOMTokenList Proxy (element.classList) ───
     function createDOMTokenListProxy(elementHandle) {
         return {
@@ -291,9 +343,12 @@ const JAVY_BROWSER_BRIDGE = `
 
                 if (prop in NodeConstants) return NodeConstants[prop];
                 if (prop in EventConstants) return EventConstants[prop];
+                if (prop in MediaConstants) return MediaConstants[prop];
+                if (prop in FileReaderConstants) return FileReaderConstants[prop];
 
                 if (prop === 'classList') return createDOMTokenListProxy(t.__handle__);
                 if (prop === 'style') return createCSSStyleDeclarationProxy(t.__handle__);
+                if (prop === 'dataset') return createDatasetProxy(t.__handle__);
 
                 if (prop === 'addEventListener') {
                     return function(type, listener, options) {
@@ -387,7 +442,31 @@ const JAVY_BROWSER_BRIDGE = `
                     };
                 }
 
-                // NodeList / HTMLCollection Iteration support
+                if (prop === 'click') {
+                    return function() {
+                        const evt = new MouseEvent('click', { bubbles: true, cancelable: true });
+                        proxy.dispatchEvent(evt);
+                        __wireCall({ op: 'CALL', h: t.__handle__, method: 'click', args: [] });
+                    };
+                }
+
+                if (prop === 'focus') {
+                    return function(options) {
+                        const evt = new FocusEvent('focus', { bubbles: false, cancelable: false });
+                        proxy.dispatchEvent(evt);
+                        __wireCall({ op: 'CALL', h: t.__handle__, method: 'focus', args: options ? [serializeArg(options)] : [] });
+                    };
+                }
+
+                if (prop === 'blur') {
+                    return function() {
+                        const evt = new FocusEvent('blur', { bubbles: false, cancelable: false });
+                        proxy.dispatchEvent(evt);
+                        __wireCall({ op: 'CALL', h: t.__handle__, method: 'blur', args: [] });
+                    };
+                }
+
+                // NodeList / HTMLCollection / FormData Iteration support
                 if (prop === Symbol.iterator) {
                     return function*() {
                         const len = Number(proxy.length) || 0;
@@ -547,6 +626,170 @@ const JAVY_BROWSER_BRIDGE = `
         return NodeConstructor;
     }
 
+    // ─── HTML5 Element Tag Mapping & Class Factory ───
+    const htmlTagMap = {
+        HTMLElement: null,
+        HTMLMediaElement: ['AUDIO', 'VIDEO'],
+        HTMLInputElement: ['INPUT'],
+        HTMLTextAreaElement: ['TEXTAREA'],
+        HTMLSelectElement: ['SELECT'],
+        HTMLOptionElement: ['OPTION'],
+        HTMLOptGroupElement: ['OPTGROUP'],
+        HTMLFormElement: ['FORM'],
+        HTMLButtonElement: ['BUTTON'],
+        HTMLDivElement: ['DIV'],
+        HTMLSpanElement: ['SPAN'],
+        HTMLParagraphElement: ['P'],
+        HTMLAnchorElement: ['A'],
+        HTMLImageElement: ['IMG'],
+        HTMLAudioElement: ['AUDIO'],
+        HTMLVideoElement: ['VIDEO'],
+        HTMLCanvasElement: ['CANVAS'],
+        HTMLDialogElement: ['DIALOG'],
+        HTMLIFrameElement: ['IFRAME'],
+        HTMLTableElement: ['TABLE'],
+        HTMLTableRowElement: ['TR'],
+        HTMLTableCellElement: ['TD', 'TH'],
+        HTMLUListElement: ['UL'],
+        HTMLOListElement: ['OL'],
+        HTMLLIElement: ['LI'],
+        HTMLHeadingElement: ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'],
+        HTMLBodyElement: ['BODY'],
+        HTMLHeadElement: ['HEAD'],
+        HTMLHtmlElement: ['HTML'],
+        HTMLScriptElement: ['SCRIPT'],
+        HTMLStyleElement: ['STYLE'],
+        HTMLLinkElement: ['LINK'],
+        HTMLMetaElement: ['META'],
+        HTMLTitleElement: ['TITLE'],
+        HTMLFormControlsCollection: null,
+        HTMLOptionsCollection: null
+    };
+
+    function createHTMLElementClass(className) {
+        function HTMLElementConstructor() {
+            throw new TypeError("Illegal constructor");
+        }
+        if (className === 'HTMLMediaElement' || className === 'HTMLAudioElement' || className === 'HTMLVideoElement') {
+            Object.assign(HTMLElementConstructor, MediaConstants);
+        }
+        try {
+            Object.defineProperty(HTMLElementConstructor, Symbol.hasInstance, {
+                value: function(instance) {
+                    if (!instance || typeof instance !== 'object' || !instance.__handle__) return false;
+                    if (instance.nodeType !== 1) return false;
+                    if (className === 'HTMLElement') return true;
+                    const allowedTags = htmlTagMap[className];
+                    if (allowedTags && allowedTags.includes(instance.tagName)) return true;
+                    return instance.__type__ === className;
+                },
+                configurable: true
+            });
+        } catch(e) {}
+        return HTMLElementConstructor;
+    }
+
+    // ─── Task 02 Constructors: Option, Image, Audio, FormData, Blob, File, FileReader ───
+    function Option(text, value, defaultSelected, selected) {
+        if (!new.target) throw new TypeError("Failed to construct 'Option': Please use the 'new' operator");
+        const args = [];
+        if (text !== undefined) args.push(String(text));
+        if (value !== undefined) args.push(String(value));
+        if (defaultSelected !== undefined) args.push(Boolean(defaultSelected));
+        if (selected !== undefined) args.push(Boolean(selected));
+        const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'Option', args: args.map(serializeArg) });
+        return getOrCreateProxy(res.result.$h, 'HTMLOptionElement');
+    }
+    try {
+        Object.defineProperty(Option, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.tagName === 'OPTION'),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function Image(width, height) {
+        if (!new.target) throw new TypeError("Failed to construct 'Image': Please use the 'new' operator");
+        const args = [];
+        if (width !== undefined) args.push(Number(width));
+        if (height !== undefined) args.push(Number(height));
+        const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'Image', args: args.map(serializeArg) });
+        return getOrCreateProxy(res.result.$h, 'HTMLImageElement');
+    }
+    try {
+        Object.defineProperty(Image, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.tagName === 'IMG'),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function Audio(src) {
+        if (!new.target) throw new TypeError("Failed to construct 'Audio': Please use the 'new' operator");
+        const args = src !== undefined ? [String(src)] : [];
+        const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'Audio', args: args.map(serializeArg) });
+        return getOrCreateProxy(res.result.$h, 'HTMLAudioElement');
+    }
+    Object.assign(Audio, MediaConstants);
+    try {
+        Object.defineProperty(Audio, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.tagName === 'AUDIO'),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function FormData(form, submitter) {
+        if (!new.target) throw new TypeError("Failed to construct 'FormData': Please use the 'new' operator");
+        const args = [];
+        if (form) args.push(form);
+        if (submitter) args.push(submitter);
+        const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'FormData', args: args.map(serializeArg) });
+        return getOrCreateProxy(res.result.$h, 'FormData');
+    }
+    try {
+        Object.defineProperty(FormData, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.__type__ === 'FormData'),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function Blob(blobParts, options) {
+        if (!new.target) throw new TypeError("Failed to construct 'Blob': Please use the 'new' operator");
+        const args = [blobParts || [], options || {}];
+        const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'Blob', args: args.map(serializeArg) });
+        return getOrCreateProxy(res.result.$h, 'Blob');
+    }
+    try {
+        Object.defineProperty(Blob, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && (instance.__type__ === 'Blob' || instance.__type__ === 'File')),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function File(fileBits, fileName, options) {
+        if (!new.target) throw new TypeError("Failed to construct 'File': Please use the 'new' operator");
+        const args = [fileBits || [], String(fileName), options || {}];
+        const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'File', args: args.map(serializeArg) });
+        return getOrCreateProxy(res.result.$h, 'File');
+    }
+    try {
+        Object.defineProperty(File, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.__type__ === 'File'),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function FileReader() {
+        if (!new.target) throw new TypeError("Failed to construct 'FileReader': Please use the 'new' operator");
+        const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'FileReader', args: [] });
+        return getOrCreateProxy(res.result.$h, 'FileReader');
+    }
+    Object.assign(FileReader, FileReaderConstants);
+    try {
+        Object.defineProperty(FileReader, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.__type__ === 'FileReader'),
+            configurable: true
+        });
+    } catch(e) {}
+
     // ─── Auxiliary Interface Constructors (NodeFilter, Range) ───
     function createNodeFilter() {
         function NodeFilterConstructor() {}
@@ -585,7 +828,6 @@ const JAVY_BROWSER_BRIDGE = `
 
     global.Node = createNodeClass('Node');
     global.Element = createNodeClass('Element');
-    global.HTMLElement = createNodeClass('HTMLElement');
     global.Document = createNodeClass('Document');
     global.DocumentFragment = createNodeClass('DocumentFragment');
     global.Text = createNodeClass('Text');
@@ -595,8 +837,21 @@ const JAVY_BROWSER_BRIDGE = `
     global.ProcessingInstruction = createNodeClass('ProcessingInstruction');
     global.DocumentType = createNodeClass('DocumentType');
 
+    // Register All HTML5 Element Classes
+    for (const className of Object.keys(htmlTagMap)) {
+        global[className] = createHTMLElementClass(className);
+    }
+
     global.NodeFilter = createNodeFilter();
     global.Range = createRangeClass();
+
+    global.Option = Option;
+    global.Image = Image;
+    global.Audio = Audio;
+    global.FormData = FormData;
+    global.Blob = Blob;
+    global.File = File;
+    global.FileReader = FileReader;
 
     // Root Proxies: Handle 1 = window, Handle 2 = document
     global.window = getOrCreateProxy(1, 'Window');
@@ -701,7 +956,7 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                                             const callRes = method.apply(target, args);
                                             response.result = register(callRes);
                                         } else if (cmd.op === 'NEW_CONSTRUCT') {
-                                            const Ctor = target[cmd.method];
+                                            const Ctor = (target && target[cmd.method]) || window[cmd.method];
                                             const args = (cmd.args || []).map(resolve);
                                             const newObj = new Ctor(...args);
                                             response.result = register(newObj);
