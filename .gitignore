@@ -1,2 +1,9 @@
 node_modules
+dist/
+porffor-src/
 test.html
+simple_test.html
+protected.html
+*.log
+.DS_Store
+.repl_history
