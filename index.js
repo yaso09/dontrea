@@ -92,8 +92,24 @@ const JAVY_BROWSER_BRIDGE = `
             wasmCallbacks.set(cbId, arg);
             return { $cb: cbId };
         }
-        if (typeof arg === 'object' && arg.__handle__) {
-            return { $h: arg.__handle__ };
+        if (typeof arg === 'object') {
+            if (typeof ImageData !== 'undefined' && arg instanceof ImageData) {
+                return {
+                    $imageData: true,
+                    width: arg.width,
+                    height: arg.height,
+                    data: Array.from(arg.data)
+                };
+            }
+            if (typeof Uint8ClampedArray !== 'undefined' && arg instanceof Uint8ClampedArray) {
+                return Array.from(arg);
+            }
+            if (typeof Uint8Array !== 'undefined' && arg instanceof Uint8Array) {
+                return Array.from(arg);
+            }
+            if (arg.__handle__) {
+                return { $h: arg.__handle__ };
+            }
         }
         if (Array.isArray(arg)) {
             return arg.map(serializeArg);
@@ -110,6 +126,10 @@ const JAVY_BROWSER_BRIDGE = `
 
     function deserializeResult(res) {
         if (res && typeof res === 'object') {
+            if (res.$imageData) {
+                const arr = new Uint8ClampedArray(res.data);
+                return new ImageData(arr, res.width, res.height);
+            }
             if (res.$h) {
                 return getOrCreateProxy(res.$h, res.$t);
             }
@@ -612,6 +632,16 @@ const JAVY_BROWSER_BRIDGE = `
                     if (prop === 'queueMicrotask') return global.queueMicrotask;
                     if (prop === 'URL') return global.URL;
                     if (prop === 'URLSearchParams') return global.URLSearchParams;
+                    if (prop === 'ImageData') return global.ImageData;
+                    if (prop === 'Path2D') return global.Path2D;
+                    if (prop === 'OffscreenCanvas') return global.OffscreenCanvas;
+                    if (prop === 'CanvasRenderingContext2D') return global.CanvasRenderingContext2D;
+                    if (prop === 'OffscreenCanvasRenderingContext2D') return global.OffscreenCanvasRenderingContext2D;
+                    if (prop === 'CanvasGradient') return global.CanvasGradient;
+                    if (prop === 'CanvasPattern') return global.CanvasPattern;
+                    if (prop === 'TextMetrics') return global.TextMetrics;
+                    if (prop === 'ImageBitmap') return global.ImageBitmap;
+                    if (prop === 'createImageBitmap') return global.createImageBitmap;
                 }
 
                 // Handle 7 (Performance)
@@ -622,6 +652,67 @@ const JAVY_BROWSER_BRIDGE = `
                             return Number(pRes.result);
                         };
                     }
+                }
+
+                // Task 05: Canvas & Context Special Methods
+                if (prop === 'toBlob') {
+                    return function(callback, type, quality) {
+                        if (typeof callback !== 'function') return;
+                        try {
+                            const dataUrl = proxy.toDataURL(type, quality);
+                            const commaIdx = dataUrl.indexOf(',');
+                            const mime = (dataUrl.slice(5, commaIdx).split(';')[0]) || 'image/png';
+                            const b64 = dataUrl.slice(commaIdx + 1);
+                            const raw = global.atob(b64);
+                            const arr = new Uint8Array(raw.length);
+                            for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+                            const blob = new Blob([arr], { type: mime });
+                            callback(blob);
+                        } catch(e) {
+                            callback(null);
+                        }
+                    };
+                }
+                if (prop === 'createImageData') {
+                    return function(arg1, arg2, settings) {
+                        if (arg1 && typeof arg1 === 'object' && arg1.width) {
+                            return new ImageData(arg1.width, arg1.height, settings);
+                        }
+                        return new ImageData(Number(arg1), Number(arg2), settings);
+                    };
+                }
+                if (prop === 'getImageData') {
+                    return function(sx, sy, sw, sh, settings) {
+                        const gRes = __wireCall({
+                            op: 'GET_IMAGE_DATA',
+                            h: t.__handle__,
+                            sx: Number(sx),
+                            sy: Number(sy),
+                            sw: Number(sw),
+                            sh: Number(sh),
+                            settings: settings
+                        });
+                        if (gRes.result && gRes.result.$imageData) {
+                            const u8c = new Uint8ClampedArray(gRes.result.data);
+                            return new ImageData(u8c, gRes.result.width, gRes.result.height, settings);
+                        }
+                        return new ImageData(Number(sw), Number(sh), settings);
+                    };
+                }
+                if (prop === 'putImageData') {
+                    return function(imagedata, dx, dy, dirtyX, dirtyY, dirtyWidth, dirtyHeight) {
+                        __wireCall({
+                            op: 'PUT_IMAGE_DATA',
+                            h: t.__handle__,
+                            imagedata: serializeArg(imagedata),
+                            dx: Number(dx),
+                            dy: Number(dy),
+                            dirtyX: dirtyX !== undefined ? Number(dirtyX) : undefined,
+                            dirtyY: dirtyY !== undefined ? Number(dirtyY) : undefined,
+                            dirtyWidth: dirtyWidth !== undefined ? Number(dirtyWidth) : undefined,
+                            dirtyHeight: dirtyHeight !== undefined ? Number(dirtyHeight) : undefined
+                        });
+                    };
                 }
 
                 // Query host for property or method
@@ -1509,6 +1600,101 @@ const JAVY_BROWSER_BRIDGE = `
     global.URL = URLPolyfill;
     global.URLSearchParams = URLSearchParamsPolyfill;
 
+    // ─── Task 05: Canvas 2D, Path2D, ImageData & OffscreenCanvas ───
+    function ImageData(arg1, arg2, arg3) {
+        if (!new.target) throw new TypeError("Failed to construct 'ImageData': Please use the 'new' operator");
+        let data, width, height, settings;
+        if (arg1 instanceof Uint8ClampedArray) {
+            data = arg1;
+            width = Number(arg2);
+            if (arg3 !== undefined && typeof arg3 === 'number') {
+                height = arg3;
+            } else {
+                height = Math.floor(data.length / (4 * width));
+                if (arg3 && typeof arg3 === 'object') settings = arg3;
+            }
+        } else {
+            width = Number(arg1);
+            height = Number(arg2);
+            if (arg3 && typeof arg3 === 'object') settings = arg3;
+            data = new Uint8ClampedArray(width * height * 4);
+        }
+        this.width = width;
+        this.height = height;
+        this.data = data;
+        this.colorSpace = (settings && settings.colorSpace) || 'srgb';
+    }
+    try {
+        Object.defineProperty(ImageData, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && (
+                instance.constructor === ImageData ||
+                (instance.__handle__ && instance.__type__ === 'ImageData') ||
+                (instance.data instanceof Uint8ClampedArray && typeof instance.width === 'number' && typeof instance.height === 'number')
+            )),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function Path2D(pathOrD) {
+        if (!new.target) throw new TypeError("Failed to construct 'Path2D': Please use the 'new' operator");
+        const args = [];
+        if (pathOrD !== undefined) args.push(serializeArg(pathOrD));
+        const res = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: 'Path2D', args: args });
+        return getOrCreateProxy(res.result.$h, 'Path2D');
+    }
+    try {
+        Object.defineProperty(Path2D, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.__type__ === 'Path2D'),
+            configurable: true
+        });
+    } catch(e) {}
+
+    function OffscreenCanvas(width, height) {
+        if (!new.target) throw new TypeError("Failed to construct 'OffscreenCanvas': Please use the 'new' operator");
+        const res = __wireCall({
+            op: 'NEW_CONSTRUCT',
+            h: 1,
+            method: 'OffscreenCanvas',
+            args: [Number(width || 0), Number(height || 0)]
+        });
+        return getOrCreateProxy(res.result.$h, 'OffscreenCanvas');
+    }
+    try {
+        Object.defineProperty(OffscreenCanvas, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.__type__ === 'OffscreenCanvas'),
+            configurable: true
+        });
+    } catch(e) {}
+
+    global.ImageData = ImageData;
+    global.Path2D = Path2D;
+    global.OffscreenCanvas = OffscreenCanvas;
+    const canvas2DCtxClass = createEmptyClass('CanvasRenderingContext2D');
+    try {
+        Object.defineProperty(canvas2DCtxClass, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && (
+                instance.__type__ === 'CanvasRenderingContext2D' ||
+                instance.__type__ === 'OffscreenCanvasRenderingContext2D'
+            )),
+            configurable: true
+        });
+    } catch(e) {}
+    global.CanvasRenderingContext2D = canvas2DCtxClass;
+    global.OffscreenCanvasRenderingContext2D = createEmptyClass('OffscreenCanvasRenderingContext2D');
+    global.CanvasGradient = createEmptyClass('CanvasGradient');
+    global.CanvasPattern = createEmptyClass('CanvasPattern');
+    global.TextMetrics = createEmptyClass('TextMetrics');
+    global.ImageBitmap = createEmptyClass('ImageBitmap');
+    global.createImageBitmap = function(image, ...args) {
+        const res = __wireCall({
+            op: 'CALL',
+            h: 1,
+            method: 'createImageBitmap',
+            args: [serializeArg(image), ...args.map(serializeArg)]
+        });
+        return Promise.resolve(getOrCreateProxy(res.result ? res.result.$h : 1, 'ImageBitmap'));
+    };
+
     global.atob = atob;
     global.btoa = btoa;
     global.setTimeout = setTimeout;
@@ -1574,6 +1760,29 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
 
                         function register(obj) {
                             if (!obj || (typeof obj !== 'object' && typeof obj !== 'function')) return obj;
+                            if (typeof ImageData !== 'undefined' && obj instanceof ImageData) {
+                                return {
+                                    $imageData: true,
+                                    width: obj.width,
+                                    height: obj.height,
+                                    data: Array.from(obj.data)
+                                };
+                            }
+                            if (typeof Uint8ClampedArray !== 'undefined' && obj instanceof Uint8ClampedArray) {
+                                return Array.from(obj);
+                            }
+                            if (Array.isArray(obj)) {
+                                if (obj.length === 0 || typeof obj[0] === 'number' || typeof obj[0] === 'string' || typeof obj[0] === 'boolean') {
+                                    return obj.slice();
+                                }
+                                if (objectToHandle.has(obj)) {
+                                    return { $h: objectToHandle.get(obj), $t: 'Array' };
+                                }
+                                const id = nextHandleId++;
+                                handleToObject.set(id, obj);
+                                try { objectToHandle.set(obj, id); } catch(e) {}
+                                return obj.map(register);
+                            }
                             if (objectToHandle.has(obj)) {
                                 const id = objectToHandle.get(obj);
                                 return { $h: id, $t: obj.constructor ? obj.constructor.name : 'Object' };
@@ -1595,6 +1804,14 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                             else if (obj instanceof DOMMatrix) typeName = 'DOMMatrix';
                             else if (typeof MediaQueryList !== 'undefined' && obj instanceof MediaQueryList) typeName = 'MediaQueryList';
                             else if (typeof Animation !== 'undefined' && obj instanceof Animation) typeName = 'Animation';
+                            else if (typeof Path2D !== 'undefined' && obj instanceof Path2D) typeName = 'Path2D';
+                            else if (typeof CanvasRenderingContext2D !== 'undefined' && obj instanceof CanvasRenderingContext2D) typeName = 'CanvasRenderingContext2D';
+                            else if (typeof OffscreenCanvasRenderingContext2D !== 'undefined' && obj instanceof OffscreenCanvasRenderingContext2D) typeName = 'OffscreenCanvasRenderingContext2D';
+                            else if (typeof CanvasGradient !== 'undefined' && obj instanceof CanvasGradient) typeName = 'CanvasGradient';
+                            else if (typeof CanvasPattern !== 'undefined' && obj instanceof CanvasPattern) typeName = 'CanvasPattern';
+                            else if (typeof TextMetrics !== 'undefined' && obj instanceof TextMetrics) typeName = 'TextMetrics';
+                            else if (typeof OffscreenCanvas !== 'undefined' && obj instanceof OffscreenCanvas) typeName = 'OffscreenCanvas';
+                            else if (typeof ImageBitmap !== 'undefined' && obj instanceof ImageBitmap) typeName = 'ImageBitmap';
                             else if (obj.constructor && obj.constructor.name) typeName = obj.constructor.name;
                             return { $h: id, $t: typeName };
                         }
@@ -1611,8 +1828,15 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                         const hostTimers = new Map();
 
                         function resolve(val) {
-                            if (val && typeof val === 'object' && val.$h) {
-                                return handleToObject.get(val.$h);
+                            if (val && typeof val === 'object') {
+                                if (val.$h) return handleToObject.get(val.$h);
+                                if (val.$imageData) {
+                                    const arr = new Uint8ClampedArray(val.data);
+                                    return new ImageData(arr, val.width, val.height);
+                                }
+                                if (Array.isArray(val)) {
+                                    return val.map(resolve);
+                                }
                             }
                             return val;
                         }
@@ -1782,6 +2006,22 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                                             response.result = URL.createObjectURL(blob);
                                         } else if (cmd.op === 'REVOKE_OBJECT_URL') {
                                             URL.revokeObjectURL(cmd.url);
+                                            response.result = true;
+                                        } else if (cmd.op === 'GET_IMAGE_DATA') {
+                                            const imgData = target.getImageData(cmd.sx, cmd.sy, cmd.sw, cmd.sh, cmd.settings);
+                                            response.result = {
+                                                $imageData: true,
+                                                width: imgData.width,
+                                                height: imgData.height,
+                                                data: Array.from(imgData.data)
+                                            };
+                                        } else if (cmd.op === 'PUT_IMAGE_DATA') {
+                                            const imgData = resolve(cmd.imagedata);
+                                            if (cmd.dirtyX !== undefined) {
+                                                target.putImageData(imgData, cmd.dx, cmd.dy, cmd.dirtyX, cmd.dirtyY, cmd.dirtyWidth, cmd.dirtyHeight);
+                                            } else {
+                                                target.putImageData(imgData, cmd.dx, cmd.dy);
+                                            }
                                             response.result = true;
                                         }
                                     } catch (err) {
