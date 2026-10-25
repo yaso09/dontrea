@@ -2455,6 +2455,8 @@ configCommand.command('add')
         try {
             const args = process.argv.slice(process.argv.indexOf('add') + 1);
             let configPath = 'dontrea.json';
+            let targetInput;
+            let targetOutput;
             const values = {};
             const aliases = {
                 p: 'parts', parts: 'parts',
@@ -2483,6 +2485,16 @@ configCommand.command('add')
                     configPath = args[++i];
                     continue;
                 }
+                if (token === '-i' || token === '--input') {
+                    if (!args[i + 1] || args[i + 1].startsWith('-')) throw new Error(`${token} requires a path.`);
+                    targetInput = args[++i];
+                    continue;
+                }
+                if (token === '-o' || token === '--output') {
+                    if (!args[i + 1] || args[i + 1].startsWith('-')) throw new Error(`${token} requires a path.`);
+                    targetOutput = args[++i];
+                    continue;
+                }
                 if (!token.startsWith('--') && token.includes('=')) {
                     const [rawKey, ...parts] = token.split('=');
                     const key = aliases[rawKey.replace(/^-+/, '')] || rawKey;
@@ -2509,7 +2521,8 @@ configCommand.command('add')
                 if (value === undefined || value.startsWith('-')) throw new Error(`${token} requires a value.`);
                 values[key] = booleanKeys.has(key) ? value === 'true' : parseValue(value);
             }
-            if (!Object.keys(values).length) throw new Error('Specify at least one parameter to add.');
+            if (!Object.keys(values).length && !targetOutput) throw new Error('Specify at least one parameter to add.');
+            if (targetOutput && !targetInput) throw new Error('The -o/--output parameter requires -i/--input to select a configured HTML file.');
 
             configPath = path.resolve(configPath);
             let config = {};
@@ -2518,12 +2531,22 @@ configCommand.command('add')
                 catch (error) { throw new Error(`Invalid JSON in ${configPath}: ${error.message}`); }
                 if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('The config root must be a JSON object.');
             }
-            if (config.options !== undefined && (!config.options || typeof config.options !== 'object' || Array.isArray(config.options))) {
-                throw new Error('The "options" property must be a JSON object.');
+            if (targetInput) {
+                if (!Array.isArray(config.files)) throw new Error('dontrea.json must contain a "files" array to select an input.');
+                const configDir = path.dirname(configPath);
+                const normalizedTarget = path.resolve(configDir, targetInput).toLowerCase();
+                const entry = config.files.find((file) => file && typeof file.input === 'string' && path.resolve(configDir, file.input).toLowerCase() === normalizedTarget);
+                if (!entry) throw new Error(`Input is not configured in dontrea.json: ${targetInput}`);
+                if (targetOutput) entry.output = targetOutput;
+                Object.assign(entry, values);
+            } else {
+                if (config.options !== undefined && (!config.options || typeof config.options !== 'object' || Array.isArray(config.options))) {
+                    throw new Error('The "options" property must be a JSON object.');
+                }
+                config.options = { ...(config.options || {}), ...values };
             }
-            config.options = { ...(config.options || {}), ...values };
             fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-            console.log(chalk.green(`[✓] Updated shared parameters in ${configPath}`));
+            console.log(chalk.green(`[✓] Updated config in ${configPath}`));
         } catch (error) {
             console.error(chalk.red(`[-] Config update failed: ${error.message}`));
             process.exitCode = 1;

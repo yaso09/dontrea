@@ -159,6 +159,14 @@ dontrea config add --parts 8 --no-wasm --self-defending true
 
 The command writes these values to the `options` property in `dontrea.json`. Per-file `options` or parameters override shared values. Select another config with `dontrea config add -c config/dontrea.json --parts 8`.
 
+Target one configured HTML entry and optionally set its output path with `-i` and `-o`. Only that entry is updated:
+
+```bash
+dontrea config add -i src/game.html -o dist/game-protected.html --parts 12 --self-defending true
+```
+
+Use `-o` together with `-i` so the output path is associated with a specific input.
+
 ### Full Options Reference
 
 | Option | Alias | Default | Description |
