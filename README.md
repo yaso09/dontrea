@@ -158,6 +158,7 @@ dontrea config add --parts 8 --no-wasm --self-defending true
 ```
 
 The command writes these values to the `options` property in `dontrea.json`. Per-file `options` or parameters override shared values. Select another config with `dontrea config add -c config/dontrea.json --parts 8`.
+If `dontrea.json` does not exist, the command creates it automatically.
 
 Target one configured HTML entry and optionally set its output path with `-i` and `-o`. Only that entry is updated:
 

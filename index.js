@@ -2525,17 +2525,25 @@ configCommand.command('add')
             if (targetOutput && !targetInput) throw new Error('The -o/--output parameter requires -i/--input to select a configured HTML file.');
 
             configPath = path.resolve(configPath);
-            let config = {};
-            if (fs.existsSync(configPath)) {
+            const configExists = fs.existsSync(configPath);
+            let config = { files: [] };
+            if (configExists) {
                 try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
                 catch (error) { throw new Error(`Invalid JSON in ${configPath}: ${error.message}`); }
                 if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('The config root must be a JSON object.');
             }
             if (targetInput) {
-                if (!Array.isArray(config.files)) throw new Error('dontrea.json must contain a "files" array to select an input.');
+                if (!Array.isArray(config.files)) {
+                    if (configExists) throw new Error('dontrea.json "files" property must be an array.');
+                    config.files = [];
+                }
                 const configDir = path.dirname(configPath);
                 const normalizedTarget = path.resolve(configDir, targetInput).toLowerCase();
-                const entry = config.files.find((file) => file && typeof file.input === 'string' && path.resolve(configDir, file.input).toLowerCase() === normalizedTarget);
+                let entry = config.files.find((file) => file && typeof file.input === 'string' && path.resolve(configDir, file.input).toLowerCase() === normalizedTarget);
+                if (!entry && !configExists) {
+                    entry = { input: targetInput };
+                    config.files.push(entry);
+                }
                 if (!entry) throw new Error(`Input is not configured in dontrea.json: ${targetInput}`);
                 if (targetOutput) entry.output = targetOutput;
                 Object.assign(entry, values);
@@ -2545,6 +2553,7 @@ configCommand.command('add')
                 }
                 config.options = { ...(config.options || {}), ...values };
             }
+            fs.mkdirSync(path.dirname(configPath), { recursive: true });
             fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
             console.log(chalk.green(`[✓] Updated config in ${configPath}`));
         } catch (error) {

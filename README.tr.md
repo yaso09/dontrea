@@ -158,6 +158,7 @@ dontrea config add --parts 8 --no-wasm --self-defending true
 ```
 
 Bu komut değerleri `dontrea.json` içindeki `options` alanına yazar. Dosya bazındaki `options` veya parametreler ortak değerleri geçersiz kılar. Farklı bir yapılandırma yolu `dontrea config add -c config/dontrea.json --parts 8` biçiminde verilebilir.
+`dontrea.json` yoksa komut dosyayı otomatik oluşturur.
 
 Belirli bir HTML girdisini ve çıktı yolunu güncellemek için `-i` ve isteğe bağlı `-o` kullanın. Bu durumda yalnızca eşleşen dosyanın yapılandırması değişir:
 
