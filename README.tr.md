@@ -114,6 +114,43 @@ npm link
 dontrea -i index.html -o dist/protected.html
 ```
 
+### Proje Yapılandırması ile Toplu Derleme
+
+Proje kökünde `dontrea.json` oluşturun. Her `files` girdisi bir HTML kaynağını, çıktı dizinini ve bu dosyaya özel parametreleri tanımlar. `output` verilmezse çıktı adı kaynak dosyanın adı olur.
+
+```json
+{
+  "files": [
+    {
+      "input": "src/index.html",
+      "outputDir": "dist",
+      "parts": 8,
+      "noWasm": true,
+      "selfDefending": true
+    },
+    {
+      "input": "src/game.html",
+      "outputDir": "dist/game",
+      "options": {
+        "parts": 12,
+        "controlFlowFlattening": true,
+        "controlFlowFlatteningThreshold": 1,
+        "deadCodeInjection": true,
+        "domainLock": ["example.com"]
+      }
+    }
+  ]
+}
+```
+
+Yapılandırma dosyasının bulunduğu dizinden:
+
+```bash
+dontrea build
+```
+
+Başka bir yapılandırma dosyası `dontrea build -c config/dontrea.json` ile seçilebilir. `input`, `output` ve `outputDir` yolları yapılandırma dosyasına göre çözülür. `outputDir` varsayılanı `dist` olur.
+
 ### Tüm Parametre Listesi
 
 | Parametre | Kısa Yol | Varsayılan | Açıklama |

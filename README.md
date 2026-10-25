@@ -114,6 +114,43 @@ npm link
 dontrea -i index.html -o dist/protected.html
 ```
 
+### Build from a Project Configuration
+
+Create `dontrea.json` in your project root. Each entry in `files` specifies an HTML input, output directory, and per-file parameters. If `output` is omitted, the output filename is derived from the input filename.
+
+```json
+{
+  "files": [
+    {
+      "input": "src/index.html",
+      "outputDir": "dist",
+      "parts": 8,
+      "noWasm": true,
+      "selfDefending": true
+    },
+    {
+      "input": "src/game.html",
+      "outputDir": "dist/game",
+      "options": {
+        "parts": 12,
+        "controlFlowFlattening": true,
+        "controlFlowFlatteningThreshold": 1,
+        "deadCodeInjection": true,
+        "domainLock": ["example.com"]
+      }
+    }
+  ]
+}
+```
+
+Run this from the directory containing the config:
+
+```bash
+dontrea build
+```
+
+Use `dontrea build -c config/dontrea.json` to select another config. `input`, `output`, and `outputDir` paths are resolved relative to the config file. `outputDir` defaults to `dist`.
+
 ### Full Options Reference
 
 | Option | Alias | Default | Description |

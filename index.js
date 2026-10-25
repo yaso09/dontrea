@@ -2389,7 +2389,7 @@ program
     .version('1.0.0');
 
 program
-    .requiredOption('-i, --input <path>', 'Input HTML file path')
+    .option('-i, --input <path>', 'Input HTML file path')
     .option('-o, --output <path>', 'Output protected HTML file path', 'protected.html')
     .option('-p, --parts <number>', 'Number of chunks to split the code into', '5')
     .option('--control-flow-flattening <boolean>', 'Enable control flow flattening', 'false')
@@ -2404,27 +2404,82 @@ program
     .option('--dynamic', 'Compile with Javy dynamic QuickJS provider flag (-d)', false)
     .option('--wasm-binary <path>', 'Path to pre-compiled Wasm binary (base64 or .wasm file)');
 
+const buildCommand = program.command('build')
+    .description('Build all HTML entries defined in dontrea.json')
+    .option('-c, --config <path>', 'Path to dontrea.json', 'dontrea.json')
+    .action(async (commandOptions) => {
+        try {
+            const configPath = path.resolve(commandOptions.config);
+            if (!fs.existsSync(configPath)) throw new Error(`Config file not found: ${configPath}`);
+            let config;
+            try {
+                config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            } catch (error) {
+                throw new Error(`Invalid JSON in ${configPath}: ${error.message}`);
+            }
+            if (!config || !Array.isArray(config.files) || config.files.length === 0) {
+                throw new Error('dontrea.json must contain a non-empty "files" array.');
+            }
+
+            const configDir = path.dirname(configPath);
+            for (const [index, entry] of config.files.entries()) {
+                if (!entry || typeof entry.input !== 'string' || !entry.input.trim()) {
+                    throw new Error(`files[${index}] must specify an input HTML path.`);
+                }
+                const entryOptions = { ...(entry.options || {}), ...entry };
+                delete entryOptions.options;
+                delete entryOptions.outputDir;
+                const input = path.resolve(configDir, entry.input);
+                const outputDir = path.resolve(configDir, entry.outputDir || 'dist');
+                const output = entry.output
+                    ? path.resolve(configDir, entry.output)
+                    : path.join(outputDir, `${path.basename(entry.input, path.extname(entry.input))}.html`);
+                if (typeof entryOptions.wasmBinary === 'string' && /\.(wasm|wat)$/i.test(entryOptions.wasmBinary)) {
+                    entryOptions.wasmBinary = path.resolve(configDir, entryOptions.wasmBinary);
+                }
+                console.log(chalk.cyan.bold(`\nBuilding ${entry.input}...`));
+                await runPipeline(makeOptions({ ...entryOptions, input, output }));
+            }
+        } catch (error) {
+            console.error(chalk.red(`[-] Build failed: ${error.message}`));
+            process.exitCode = 1;
+        }
+    });
+
 program.parse(process.argv);
 const rawOptions = program.opts();
 
-const options = {
-    input: rawOptions.input,
-    output: rawOptions.output,
-    parts: rawOptions.parts,
-    controlFlowFlattening: rawOptions.controlFlowFlattening === 'true',
-    controlFlowFlatteningThreshold: rawOptions.controlFlowFlatteningThreshold,
-    deadCodeInjection: rawOptions.deadCodeInjection === 'true',
-    debugProtection: rawOptions.debugProtection === 'true',
-    debugProtectionInterval: rawOptions.debugProtectionInterval,
-    selfDefending: rawOptions.selfDefending === 'true',
-    domainLock: rawOptions.domainLock,
-    forceWasm: rawOptions.forceWasm === 'true',
-    noWasm: rawOptions.wasm === false,
-    dynamic: rawOptions.dynamic === true,
-    wasmBinary: rawOptions.wasmBinary,
-};
+function makeOptions(source) {
+    return {
+        input: source.input,
+        output: source.output || 'protected.html',
+        parts: source.parts ?? '5',
+        controlFlowFlattening: source.controlFlowFlattening === true || source.controlFlowFlattening === 'true',
+        controlFlowFlatteningThreshold: source.controlFlowFlatteningThreshold ?? '0.75',
+        deadCodeInjection: source.deadCodeInjection === true || source.deadCodeInjection === 'true',
+        debugProtection: source.debugProtection === true || source.debugProtection === 'true',
+        debugProtectionInterval: source.debugProtectionInterval ?? '2000',
+        selfDefending: source.selfDefending === true || source.selfDefending === 'true',
+        domainLock: source.domainLock,
+        forceWasm: source.forceWasm === true || source.forceWasm === 'true',
+        noWasm: source.noWasm === true || source.wasm === false,
+        dynamic: source.dynamic === true,
+        wasmBinary: source.wasmBinary,
+    };
+}
 
-async function runPipeline() {
+if (process.argv[2] !== 'build') {
+    if (!rawOptions.input) {
+        program.help();
+    } else {
+        runPipeline(makeOptions({ ...rawOptions, noWasm: rawOptions.wasm === false })).catch((error) => {
+            console.error(chalk.red(`[-] Error: ${error.message}`));
+            process.exitCode = 1;
+        });
+    }
+}
+
+async function runPipeline(options) {
     console.log(chalk.cyan.bold('\n🛡️  Dontrea Anti-Piracy Protection Pipeline starting...'));
     
     // Check Javy compiler availability
@@ -2438,8 +2493,7 @@ async function runPipeline() {
     }
     
     if (!fs.existsSync(options.input)) {
-        console.error(chalk.red(`[-] Error: Input file not found at ${options.input}`));
-        process.exit(1);
+        throw new Error(`Input file not found at ${options.input}`);
     }
 
     const htmlContent = fs.readFileSync(options.input, 'utf8');
@@ -2526,8 +2580,7 @@ async function runPipeline() {
                 isWasm = true;
                 console.log(chalk.green(`[✓] Using pre-compiled WebAssembly binary (${wasmBytes.length} bytes).`));
             } catch (e) {
-                console.error(chalk.red(`[-] Failed to load Wasm binary: ${e.message}`));
-                process.exit(1);
+                throw new Error(`Failed to load Wasm binary: ${e.message}`);
             }
         }
         // Option B: Compile via Javy (when Javy is available and either no hardware APIs or forced)
@@ -2670,5 +2723,3 @@ async function runPipeline() {
         fs.writeFileSync(options.output, processedHtml, 'utf8');
     }
 }
-
-runPipeline();
