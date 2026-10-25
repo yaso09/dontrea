@@ -151,6 +151,14 @@ dontrea build
 
 Başka bir yapılandırma dosyası `dontrea build -c config/dontrea.json` ile seçilebilir. `input`, `output` ve `outputDir` yolları yapılandırma dosyasına göre çözülür. `outputDir` varsayılanı `dist` olur.
 
+Derleme parametrelerini tüm HTML dosyaları için ortak varsayılan olarak eklemek veya güncellemek için `config add` kullanın:
+
+```bash
+dontrea config add --parts 8 --no-wasm --self-defending true
+```
+
+Bu komut değerleri `dontrea.json` içindeki `options` alanına yazar. Dosya bazındaki `options` veya parametreler ortak değerleri geçersiz kılar. Farklı bir yapılandırma yolu `dontrea config add -c config/dontrea.json --parts 8` biçiminde verilebilir.
+
 ### Tüm Parametre Listesi
 
 | Parametre | Kısa Yol | Varsayılan | Açıklama |

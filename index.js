@@ -2426,7 +2426,7 @@ const buildCommand = program.command('build')
                 if (!entry || typeof entry.input !== 'string' || !entry.input.trim()) {
                     throw new Error(`files[${index}] must specify an input HTML path.`);
                 }
-                const entryOptions = { ...(entry.options || {}), ...entry };
+                const entryOptions = { ...(config.options || {}), ...(entry.options || {}), ...entry };
                 delete entryOptions.options;
                 delete entryOptions.outputDir;
                 const input = path.resolve(configDir, entry.input);
@@ -2442,6 +2442,90 @@ const buildCommand = program.command('build')
             }
         } catch (error) {
             console.error(chalk.red(`[-] Build failed: ${error.message}`));
+            process.exitCode = 1;
+        }
+    });
+
+const configCommand = program.command('config').description('Manage dontrea.json settings');
+configCommand.command('add')
+    .description('Add or update shared build parameters in dontrea.json')
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .action(() => {
+        try {
+            const args = process.argv.slice(process.argv.indexOf('add') + 1);
+            let configPath = 'dontrea.json';
+            const values = {};
+            const aliases = {
+                p: 'parts', parts: 'parts',
+                'control-flow-flattening': 'controlFlowFlattening',
+                'control-flow-flattening-threshold': 'controlFlowFlatteningThreshold',
+                'dead-code-injection': 'deadCodeInjection',
+                'debug-protection': 'debugProtection',
+                'debug-protection-interval': 'debugProtectionInterval',
+                'self-defending': 'selfDefending',
+                'domain-lock': 'domainLock',
+                'force-wasm': 'forceWasm', 'no-wasm': 'noWasm',
+                dynamic: 'dynamic', 'wasm-binary': 'wasmBinary',
+            };
+            const booleanKeys = new Set(['controlFlowFlattening', 'deadCodeInjection', 'debugProtection', 'selfDefending', 'forceWasm', 'noWasm', 'dynamic']);
+            const parseValue = (value) => {
+                if (value === 'true') return true;
+                if (value === 'false') return false;
+                if (value !== '' && !Number.isNaN(Number(value))) return Number(value);
+                return value;
+            };
+
+            for (let i = 0; i < args.length; i++) {
+                const token = args[i];
+                if (token === '-c' || token === '--config') {
+                    if (!args[i + 1]) throw new Error(`${token} requires a path.`);
+                    configPath = args[++i];
+                    continue;
+                }
+                if (!token.startsWith('--') && token.includes('=')) {
+                    const [rawKey, ...parts] = token.split('=');
+                    const key = aliases[rawKey.replace(/^-+/, '')] || rawKey;
+                    if (!['parts', 'controlFlowFlattening', 'controlFlowFlatteningThreshold', 'deadCodeInjection', 'debugProtection', 'debugProtectionInterval', 'selfDefending', 'domainLock', 'forceWasm', 'noWasm', 'dynamic', 'wasmBinary'].includes(key)) throw new Error(`Unsupported parameter: ${rawKey}`);
+                    values[key] = key === 'domainLock' ? parts.join('=').split(',').map((x) => x.trim()).filter(Boolean) : parseValue(parts.join('='));
+                    continue;
+                }
+                if (!token.startsWith('-')) throw new Error(`Use CLI-style parameters, for example: --parts 8. Received: ${token}`);
+                const rawKey = token.replace(/^--?/, '');
+                const key = aliases[rawKey];
+                if (!key) throw new Error(`Unsupported parameter: ${token}`);
+                if (key === 'noWasm' || key === 'dynamic') {
+                    values[key] = true;
+                    continue;
+                }
+                if (key === 'domainLock') {
+                    const domains = [];
+                    while (args[i + 1] && !args[i + 1].startsWith('-')) domains.push(args[++i]);
+                    if (!domains.length) throw new Error(`${token} requires at least one domain.`);
+                    values[key] = domains;
+                    continue;
+                }
+                const value = args[++i];
+                if (value === undefined || value.startsWith('-')) throw new Error(`${token} requires a value.`);
+                values[key] = booleanKeys.has(key) ? value === 'true' : parseValue(value);
+            }
+            if (!Object.keys(values).length) throw new Error('Specify at least one parameter to add.');
+
+            configPath = path.resolve(configPath);
+            let config = {};
+            if (fs.existsSync(configPath)) {
+                try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
+                catch (error) { throw new Error(`Invalid JSON in ${configPath}: ${error.message}`); }
+                if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('The config root must be a JSON object.');
+            }
+            if (config.options !== undefined && (!config.options || typeof config.options !== 'object' || Array.isArray(config.options))) {
+                throw new Error('The "options" property must be a JSON object.');
+            }
+            config.options = { ...(config.options || {}), ...values };
+            fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+            console.log(chalk.green(`[✓] Updated shared parameters in ${configPath}`));
+        } catch (error) {
+            console.error(chalk.red(`[-] Config update failed: ${error.message}`));
             process.exitCode = 1;
         }
     });
@@ -2468,7 +2552,7 @@ function makeOptions(source) {
     };
 }
 
-if (process.argv[2] !== 'build') {
+if (process.argv[2] !== 'build' && process.argv[2] !== 'config') {
     if (!rawOptions.input) {
         program.help();
     } else {

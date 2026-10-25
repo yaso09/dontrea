@@ -151,6 +151,14 @@ dontrea build
 
 Use `dontrea build -c config/dontrea.json` to select another config. `input`, `output`, and `outputDir` paths are resolved relative to the config file. `outputDir` defaults to `dist`.
 
+Add or update shared defaults for every HTML entry with `config add`:
+
+```bash
+dontrea config add --parts 8 --no-wasm --self-defending true
+```
+
+The command writes these values to the `options` property in `dontrea.json`. Per-file `options` or parameters override shared values. Select another config with `dontrea config add -c config/dontrea.json --parts 8`.
+
 ### Full Options Reference
 
 | Option | Alias | Default | Description |
