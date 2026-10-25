@@ -32,8 +32,6 @@ function checkJavy() {
 // without native host execution.
 const BROWSER_ONLY_APIS = [
     { pattern: /\b(AudioContext|webkitAudioContext)\b/, name: 'Web Audio API (AudioContext)', reason: 'Headless Wasm cannot emulate audio hardware' },
-    { pattern: /\bgetContext\s*\(\s*['"](2d|webgl|webgl2)['"]\s*\)/, name: 'Canvas 2D / WebGL Context', reason: 'Headless Wasm cannot emulate hardware GPU rendering' },
-    { pattern: /\b(WebGLRenderingContext|WebGL2RenderingContext)\b/, name: 'WebGL Context', reason: 'Headless Wasm cannot interface with WebGL GPU context' },
 ];
 
 function analyzeCodeForBrowserSpecificAPIs(code) {
@@ -101,11 +99,18 @@ const JAVY_BROWSER_BRIDGE = `
                     data: Array.from(arg.data)
                 };
             }
-            if (typeof Uint8ClampedArray !== 'undefined' && arg instanceof Uint8ClampedArray) {
-                return Array.from(arg);
+            if (ArrayBuffer.isView(arg)) {
+                return {
+                    $typedArray: true,
+                    type: arg.constructor.name,
+                    data: Array.from(arg)
+                };
             }
-            if (typeof Uint8Array !== 'undefined' && arg instanceof Uint8Array) {
-                return Array.from(arg);
+            if (arg instanceof ArrayBuffer) {
+                return {
+                    $arrayBuffer: true,
+                    data: Array.from(new Uint8Array(arg))
+                };
             }
             if (arg.__handle__) {
                 return { $h: arg.__handle__ };
@@ -130,6 +135,13 @@ const JAVY_BROWSER_BRIDGE = `
                 const arr = new Uint8ClampedArray(res.data);
                 return new ImageData(arr, res.width, res.height);
             }
+            if (res.$typedArray) {
+                const Ctor = global[res.type] || Float32Array;
+                return new Ctor(res.data);
+            }
+            if (res.$arrayBuffer) {
+                return new Uint8Array(res.data).buffer;
+            }
             if (res.$h) {
                 return getOrCreateProxy(res.$h, res.$t);
             }
@@ -150,6 +162,126 @@ const JAVY_BROWSER_BRIDGE = `
     }
 
     // ─── Constants Tables ───
+    const WebGLConstants = {
+        DEPTH_BUFFER_BIT: 0x00000100,
+        STENCIL_BUFFER_BIT: 0x00000400,
+        COLOR_BUFFER_BIT: 0x00004000,
+        POINTS: 0x0000,
+        LINES: 0x0001,
+        LINE_LOOP: 0x0002,
+        LINE_STRIP: 0x0003,
+        TRIANGLES: 0x0004,
+        TRIANGLE_STRIP: 0x0005,
+        TRIANGLE_FAN: 0x0006,
+        ZERO: 0,
+        ONE: 1,
+        SRC_COLOR: 0x0300,
+        ONE_MINUS_SRC_COLOR: 0x0301,
+        SRC_ALPHA: 0x0302,
+        ONE_MINUS_SRC_ALPHA: 0x0303,
+        DST_ALPHA: 0x0304,
+        ONE_MINUS_DST_ALPHA: 0x0305,
+        DST_COLOR: 0x0306,
+        ONE_MINUS_DST_COLOR: 0x0307,
+        SRC_ALPHA_SATURATE: 0x0308,
+        NEVER: 0x0200,
+        LESS: 0x0201,
+        EQUAL: 0x0202,
+        LEQUAL: 0x0203,
+        GREATER: 0x0204,
+        NOTEQUAL: 0x0205,
+        GEQUAL: 0x0206,
+        ALWAYS: 0x0207,
+        CW: 0x0900,
+        CCW: 0x0901,
+        FRONT: 0x0404,
+        BACK: 0x0405,
+        FRONT_AND_BACK: 0x0408,
+        CULL_FACE: 0x0B44,
+        DEPTH_TEST: 0x0B71,
+        BLEND: 0x0BE2,
+        SCISSOR_TEST: 0x0C11,
+        STENCIL_TEST: 0x0B90,
+        BYTE: 0x1400,
+        UNSIGNED_BYTE: 0x1401,
+        SHORT: 0x1402,
+        UNSIGNED_SHORT: 0x1403,
+        INT: 0x1404,
+        UNSIGNED_INT: 0x1405,
+        FLOAT: 0x1406,
+        HALF_FLOAT: 0x140B,
+        ARRAY_BUFFER: 0x8892,
+        ELEMENT_ARRAY_BUFFER: 0x8893,
+        ARRAY_BUFFER_BINDING: 0x8894,
+        ELEMENT_ARRAY_BUFFER_BINDING: 0x8895,
+        STREAM_DRAW: 0x88E0,
+        STATIC_DRAW: 0x88E4,
+        DYNAMIC_DRAW: 0x88E8,
+        BUFFER_SIZE: 0x8764,
+        BUFFER_USAGE: 0x8765,
+        FRAGMENT_SHADER: 0x8B30,
+        VERTEX_SHADER: 0x8B31,
+        COMPILE_STATUS: 0x8B81,
+        LINK_STATUS: 0x8B82,
+        VALIDATE_STATUS: 0x8B83,
+        DELETE_STATUS: 0x8B80,
+        CURRENT_PROGRAM: 0x8B8D,
+        ACTIVE_ATTRIBUTES: 0x8B89,
+        ACTIVE_UNIFORMS: 0x8B86,
+        SHADER_TYPE: 0x8B4F,
+        SHADING_LANGUAGE_VERSION: 0x8B8C,
+        TEXTURE_2D: 0x0DE1,
+        TEXTURE_CUBE_MAP: 0x8513,
+        TEXTURE_BINDING_2D: 0x8069,
+        TEXTURE_BINDING_CUBE_MAP: 0x8514,
+        TEXTURE_MAG_FILTER: 0x2800,
+        TEXTURE_MIN_FILTER: 0x2801,
+        TEXTURE_WRAP_S: 0x2802,
+        TEXTURE_WRAP_T: 0x2803,
+        NEAREST: 0x2600,
+        LINEAR: 0x2601,
+        NEAREST_MIPMAP_NEAREST: 0x2700,
+        LINEAR_MIPMAP_NEAREST: 0x2701,
+        NEAREST_MIPMAP_LINEAR: 0x2702,
+        LINEAR_MIPMAP_LINEAR: 0x2703,
+        REPEAT: 0x2901,
+        CLAMP_TO_EDGE: 0x812F,
+        MIRRORED_REPEAT: 0x8370,
+        TEXTURE0: 0x84C0,
+        ACTIVE_TEXTURE: 0x84E0,
+        ALPHA: 0x1906,
+        RGB: 0x1907,
+        RGBA: 0x1908,
+        LUMINANCE: 0x1909,
+        LUMINANCE_ALPHA: 0x190A,
+        DEPTH_COMPONENT: 0x1902,
+        DEPTH_STENCIL: 0x84F9,
+        FRAMEBUFFER: 0x8D40,
+        RENDERBUFFER: 0x8D41,
+        RGBA4: 0x8056,
+        RGB5_A1: 0x8057,
+        RGB565: 0x8D62,
+        DEPTH_COMPONENT16: 0x81A5,
+        STENCIL_INDEX8: 0x8D48,
+        COLOR_ATTACHMENT0: 0x8CE0,
+        DEPTH_ATTACHMENT: 0x8D00,
+        STENCIL_ATTACHMENT: 0x8D20,
+        FRAMEBUFFER_COMPLETE: 0x8CD5,
+        READ_FRAMEBUFFER: 0x8CA8,
+        DRAW_FRAMEBUFFER: 0x8CA9,
+        UNIFORM_BUFFER: 0x8A11,
+        UNIFORM_BUFFER_BINDING: 0x8A28,
+        TRANSFORM_FEEDBACK: 0x8E22,
+        TRANSFORM_FEEDBACK_BUFFER: 0x8C8E,
+        TEXTURE_3D: 0x806F,
+        TEXTURE_2D_ARRAY: 0x8C1A,
+        COLOR_ATTACHMENT1: 0x8CE1,
+        COLOR_ATTACHMENT2: 0x8CE2,
+        COLOR_ATTACHMENT3: 0x8CE3,
+        RASTERIZER_DISCARD: 0x8C89,
+        VERTEX_ARRAY_BINDING: 0x85B5
+    };
+
     const NodeConstants = {
         ELEMENT_NODE: 1,
         ATTRIBUTE_NODE: 2,
@@ -411,6 +543,7 @@ const JAVY_BROWSER_BRIDGE = `
                 if (prop in MediaConstants) return MediaConstants[prop];
                 if (prop in FileReaderConstants) return FileReaderConstants[prop];
                 if (prop in CSSRuleConstants) return CSSRuleConstants[prop];
+                if (prop in WebGLConstants) return WebGLConstants[prop];
 
                 if (prop === 'classList') return createDOMTokenListProxy(t.__handle__);
                 if (prop === 'style') return createCSSStyleDeclarationProxy(t.__handle__, false);
@@ -642,6 +775,49 @@ const JAVY_BROWSER_BRIDGE = `
                     if (prop === 'TextMetrics') return global.TextMetrics;
                     if (prop === 'ImageBitmap') return global.ImageBitmap;
                     if (prop === 'createImageBitmap') return global.createImageBitmap;
+                    if (prop === 'WebGLRenderingContext') return global.WebGLRenderingContext;
+                    if (prop === 'WebGL2RenderingContext') return global.WebGL2RenderingContext;
+                    if (prop === 'WebGLBuffer') return global.WebGLBuffer;
+                    if (prop === 'WebGLShader') return global.WebGLShader;
+                    if (prop === 'WebGLProgram') return global.WebGLProgram;
+                    if (prop === 'WebGLTexture') return global.WebGLTexture;
+                    if (prop === 'WebGLFramebuffer') return global.WebGLFramebuffer;
+                    if (prop === 'WebGLRenderbuffer') return global.WebGLRenderbuffer;
+                    if (prop === 'WebGLUniformLocation') return global.WebGLUniformLocation;
+                    if (prop === 'WebGLActiveInfo') return global.WebGLActiveInfo;
+                    if (prop === 'WebGLShaderPrecisionFormat') return global.WebGLShaderPrecisionFormat;
+                    if (prop === 'WebGLVertexArrayObject') return global.WebGLVertexArrayObject;
+                    if (prop === 'WebGLTransformFeedback') return global.WebGLTransformFeedback;
+                    if (prop === 'WebGLQuery') return global.WebGLQuery;
+                    if (prop === 'WebGLSampler') return global.WebGLSampler;
+                    if (prop === 'WebGLSync') return global.WebGLSync;
+                    if (prop === 'GPU') return global.GPU;
+                    if (prop === 'GPUAdapter') return global.GPUAdapter;
+                    if (prop === 'GPUDevice') return global.GPUDevice;
+                    if (prop === 'GPUQueue') return global.GPUQueue;
+                    if (prop === 'GPUBuffer') return global.GPUBuffer;
+                    if (prop === 'GPUTexture') return global.GPUTexture;
+                    if (prop === 'GPUTextureView') return global.GPUTextureView;
+                    if (prop === 'GPUSampler') return global.GPUSampler;
+                    if (prop === 'GPUBindGroupLayout') return global.GPUBindGroupLayout;
+                    if (prop === 'GPUPipelineLayout') return global.GPUPipelineLayout;
+                    if (prop === 'GPUBindGroup') return global.GPUBindGroup;
+                    if (prop === 'GPUShaderModule') return global.GPUShaderModule;
+                    if (prop === 'GPUComputePipeline') return global.GPUComputePipeline;
+                    if (prop === 'GPURenderPipeline') return global.GPURenderPipeline;
+                    if (prop === 'GPUCommandEncoder') return global.GPUCommandEncoder;
+                    if (prop === 'GPURenderPassEncoder') return global.GPURenderPassEncoder;
+                    if (prop === 'GPUComputePassEncoder') return global.GPUComputePassEncoder;
+                    if (prop === 'GPUCommandBuffer') return global.GPUCommandBuffer;
+                }
+
+                // Handle 4 (Navigator)
+                if (t.__handle__ === 4) {
+                    if (prop === 'gpu') {
+                        const res = __wireCall({ op: 'GET', h: 4, prop: 'gpu' });
+                        if (res.result && res.result.$h) return getOrCreateProxy(res.result.$h, 'GPU');
+                        return global.gpuMock;
+                    }
                 }
 
                 // Handle 7 (Performance)
@@ -1695,6 +1871,72 @@ const JAVY_BROWSER_BRIDGE = `
         return Promise.resolve(getOrCreateProxy(res.result ? res.result.$h : 1, 'ImageBitmap'));
     };
 
+    // ─── Task 06: WebGL & WebGL2 Constructors & Constants ───
+    const webGLContextClass = createEmptyClass('WebGLRenderingContext');
+    Object.assign(webGLContextClass, WebGLConstants);
+    try {
+        Object.defineProperty(webGLContextClass, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && (
+                instance.__type__ === 'WebGLRenderingContext' ||
+                instance.__type__ === 'WebGL2RenderingContext'
+            )),
+            configurable: true
+        });
+    } catch(e) {}
+    global.WebGLRenderingContext = webGLContextClass;
+
+    const webGL2ContextClass = createEmptyClass('WebGL2RenderingContext');
+    Object.assign(webGL2ContextClass, WebGLConstants);
+    try {
+        Object.defineProperty(webGL2ContextClass, Symbol.hasInstance, {
+            value: (instance) => !!(instance && typeof instance === 'object' && instance.__handle__ && instance.__type__ === 'WebGL2RenderingContext'),
+            configurable: true
+        });
+    } catch(e) {}
+    global.WebGL2RenderingContext = webGL2ContextClass;
+
+    // WebGL Object Classes
+    global.WebGLBuffer = createEmptyClass('WebGLBuffer');
+    global.WebGLShader = createEmptyClass('WebGLShader');
+    global.WebGLProgram = createEmptyClass('WebGLProgram');
+    global.WebGLTexture = createEmptyClass('WebGLTexture');
+    global.WebGLFramebuffer = createEmptyClass('WebGLFramebuffer');
+    global.WebGLRenderbuffer = createEmptyClass('WebGLRenderbuffer');
+    global.WebGLUniformLocation = createEmptyClass('WebGLUniformLocation');
+    global.WebGLActiveInfo = createEmptyClass('WebGLActiveInfo');
+    global.WebGLShaderPrecisionFormat = createEmptyClass('WebGLShaderPrecisionFormat');
+    global.WebGLVertexArrayObject = createEmptyClass('WebGLVertexArrayObject');
+    global.WebGLTransformFeedback = createEmptyClass('WebGLTransformFeedback');
+    global.WebGLQuery = createEmptyClass('WebGLQuery');
+    global.WebGLSampler = createEmptyClass('WebGLSampler');
+    global.WebGLSync = createEmptyClass('WebGLSync');
+
+    // WebGPU Object Classes & Mock
+    global.GPU = createEmptyClass('GPU');
+    global.GPUAdapter = createEmptyClass('GPUAdapter');
+    global.GPUDevice = createEmptyClass('GPUDevice');
+    global.GPUQueue = createEmptyClass('GPUQueue');
+    global.GPUBuffer = createEmptyClass('GPUBuffer');
+    global.GPUTexture = createEmptyClass('GPUTexture');
+    global.GPUTextureView = createEmptyClass('GPUTextureView');
+    global.GPUSampler = createEmptyClass('GPUSampler');
+    global.GPUBindGroupLayout = createEmptyClass('GPUBindGroupLayout');
+    global.GPUPipelineLayout = createEmptyClass('GPUPipelineLayout');
+    global.GPUBindGroup = createEmptyClass('GPUBindGroup');
+    global.GPUShaderModule = createEmptyClass('GPUShaderModule');
+    global.GPUComputePipeline = createEmptyClass('GPUComputePipeline');
+    global.GPURenderPipeline = createEmptyClass('GPURenderPipeline');
+    global.GPUCommandEncoder = createEmptyClass('GPUCommandEncoder');
+    global.GPURenderPassEncoder = createEmptyClass('GPURenderPassEncoder');
+    global.GPUComputePassEncoder = createEmptyClass('GPUComputePassEncoder');
+    global.GPUCommandBuffer = createEmptyClass('GPUCommandBuffer');
+
+    const gpuMock = {
+        getPreferredCanvasFormat() { return 'bgra8unorm'; },
+        requestAdapter() { return Promise.resolve(null); }
+    };
+    global.gpuMock = gpuMock;
+
     global.atob = atob;
     global.btoa = btoa;
     global.setTimeout = setTimeout;
@@ -1768,8 +2010,18 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                                     data: Array.from(obj.data)
                                 };
                             }
-                            if (typeof Uint8ClampedArray !== 'undefined' && obj instanceof Uint8ClampedArray) {
-                                return Array.from(obj);
+                            if (ArrayBuffer.isView(obj)) {
+                                return {
+                                    $typedArray: true,
+                                    type: obj.constructor.name,
+                                    data: Array.from(obj)
+                                };
+                            }
+                            if (obj instanceof ArrayBuffer) {
+                                return {
+                                    $arrayBuffer: true,
+                                    data: Array.from(new Uint8Array(obj))
+                                };
                             }
                             if (Array.isArray(obj)) {
                                 if (obj.length === 0 || typeof obj[0] === 'number' || typeof obj[0] === 'string' || typeof obj[0] === 'boolean') {
@@ -1812,6 +2064,28 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                             else if (typeof TextMetrics !== 'undefined' && obj instanceof TextMetrics) typeName = 'TextMetrics';
                             else if (typeof OffscreenCanvas !== 'undefined' && obj instanceof OffscreenCanvas) typeName = 'OffscreenCanvas';
                             else if (typeof ImageBitmap !== 'undefined' && obj instanceof ImageBitmap) typeName = 'ImageBitmap';
+                            else if (typeof WebGLRenderingContext !== 'undefined' && obj instanceof WebGLRenderingContext) typeName = 'WebGLRenderingContext';
+                            else if (typeof WebGL2RenderingContext !== 'undefined' && obj instanceof WebGL2RenderingContext) typeName = 'WebGL2RenderingContext';
+                            else if (typeof WebGLBuffer !== 'undefined' && obj instanceof WebGLBuffer) typeName = 'WebGLBuffer';
+                            else if (typeof WebGLShader !== 'undefined' && obj instanceof WebGLShader) typeName = 'WebGLShader';
+                            else if (typeof WebGLProgram !== 'undefined' && obj instanceof WebGLProgram) typeName = 'WebGLProgram';
+                            else if (typeof WebGLTexture !== 'undefined' && obj instanceof WebGLTexture) typeName = 'WebGLTexture';
+                            else if (typeof WebGLFramebuffer !== 'undefined' && obj instanceof WebGLFramebuffer) typeName = 'WebGLFramebuffer';
+                            else if (typeof WebGLRenderbuffer !== 'undefined' && obj instanceof WebGLRenderbuffer) typeName = 'WebGLRenderbuffer';
+                            else if (typeof WebGLUniformLocation !== 'undefined' && obj instanceof WebGLUniformLocation) typeName = 'WebGLUniformLocation';
+                            else if (typeof WebGLActiveInfo !== 'undefined' && obj instanceof WebGLActiveInfo) typeName = 'WebGLActiveInfo';
+                            else if (typeof WebGLShaderPrecisionFormat !== 'undefined' && obj instanceof WebGLShaderPrecisionFormat) typeName = 'WebGLShaderPrecisionFormat';
+                            else if (typeof WebGLVertexArrayObject !== 'undefined' && obj instanceof WebGLVertexArrayObject) typeName = 'WebGLVertexArrayObject';
+                            else if (typeof WebGLTransformFeedback !== 'undefined' && obj instanceof WebGLTransformFeedback) typeName = 'WebGLTransformFeedback';
+                            else if (typeof WebGLQuery !== 'undefined' && obj instanceof WebGLQuery) typeName = 'WebGLQuery';
+                            else if (typeof WebGLSampler !== 'undefined' && obj instanceof WebGLSampler) typeName = 'WebGLSampler';
+                            else if (typeof WebGLSync !== 'undefined' && obj instanceof WebGLSync) typeName = 'WebGLSync';
+                            else if (typeof GPU !== 'undefined' && obj instanceof GPU) typeName = 'GPU';
+                            else if (typeof GPUAdapter !== 'undefined' && obj instanceof GPUAdapter) typeName = 'GPUAdapter';
+                            else if (typeof GPUDevice !== 'undefined' && obj instanceof GPUDevice) typeName = 'GPUDevice';
+                            else if (typeof GPUQueue !== 'undefined' && obj instanceof GPUQueue) typeName = 'GPUQueue';
+                            else if (typeof GPUBuffer !== 'undefined' && obj instanceof GPUBuffer) typeName = 'GPUBuffer';
+                            else if (typeof GPUTexture !== 'undefined' && obj instanceof GPUTexture) typeName = 'GPUTexture';
                             else if (obj.constructor && obj.constructor.name) typeName = obj.constructor.name;
                             return { $h: id, $t: typeName };
                         }
@@ -1833,6 +2107,13 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                                 if (val.$imageData) {
                                     const arr = new Uint8ClampedArray(val.data);
                                     return new ImageData(arr, val.width, val.height);
+                                }
+                                if (val.$typedArray) {
+                                    const Ctor = window[val.type] || Float32Array;
+                                    return new Ctor(val.data);
+                                }
+                                if (val.$arrayBuffer) {
+                                    return new Uint8Array(val.data).buffer;
                                 }
                                 if (Array.isArray(val)) {
                                     return val.map(resolve);
