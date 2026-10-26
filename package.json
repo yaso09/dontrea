@@ -7,6 +7,7 @@
     "dontrea": "./index.js"
   },
   "scripts": {
+    "build:playground-wasm": "node scripts/build-playground-wasm.js",
     "test": "echo \"Error: no test specified\" && exit 0"
   },
   "keywords": [

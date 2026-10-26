@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#090d0c">
+  <meta name="description" content="Dontrea Playground ile HTML dosyanızdaki satır içi JavaScript’i tarayıcınızda WebAssembly kullanarak dönüştürün.">
+  <title>Playground — Dontrea</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="playground.css">
+</head>
+<body class="playground-page">
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="index.html" aria-label="Dontrea ana sayfa"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span><span>dontrea<span class="lime">.</span></span></a>
+      <a class="nav-playground" href="playground.html" aria-current="page">Canlı demoyu görün <span>↗</span></a>
+      <a class="github" href="https://github.com/yaso09/dontrea" target="_blank" rel="noreferrer">GitHub <span>↗</span></a>
+    </header>
+    <main class="playground-main">
+      <a class="back-link" href="index.html">← Ana sayfaya dön</a>
+      <section class="playground-heading">
+        <p class="story-label">DONTREA / PLAYGROUND</p>
+        <h1>Korumanızı<br><em>burada deneyin.</em></h1>
+        <p>HTML dosyanızı seçin; satır içi JavaScript, Dontrea’nın WebAssembly çekirdeği tarafından tarayıcınızda dönüştürülsün. Dosyanız hiçbir sunucuya yüklenmez.</p>
+      </section>
+
+      <section class="workbench" aria-label="HTML koruma playground'ı">
+        <div class="workbench-top">
+          <div><span class="status-dot" id="engine-dot"></span><span id="engine-status">DOSYANIZI SEÇİN</span></div>
+          <span class="engine-tag">LOCAL / WEBASSEMBLY</span>
+        </div>
+        <label class="upload-zone" id="drop-zone" for="html-file">
+          <input id="html-file" type="file" accept=".html,.htm,text/html">
+          <span class="upload-icon" aria-hidden="true">↑</span>
+          <strong id="file-name">HTML dosyanızı buraya bırakın</strong>
+          <span>veya göz atmak için tıklayın · HTML / HTM</span>
+        </label>
+
+        <details class="options">
+          <summary>Koruma seçenekleri</summary>
+          <div class="option-grid">
+            <label class="field"><span>Payload parçaları</span><input id="parts" type="number" min="1" max="20" value="5"></label>
+            <label class="field"><span>Alan adı kilidi <small>(isteğe bağlı)</small></span><input id="domain-lock" type="text" placeholder="example.com, app.example.com"></label>
+            <label class="check-field"><input id="control-flow" type="checkbox"><span>Kontrol akışı düzleştirme</span></label>
+            <label class="check-field"><input id="dead-code" type="checkbox"><span>Ölü kod enjeksiyonu</span></label>
+            <label class="check-field"><input id="debug-protection" type="checkbox"><span>Geliştirici aracı koruması</span></label>
+            <label class="check-field"><input id="self-defending" type="checkbox"><span>Kendini koruyan yapı</span></label>
+          </div>
+        </details>
+
+        <div class="build-row">
+          <p id="build-message" role="status" aria-live="polite">Hazır olduğunda HTML dosyanızı seçin.</p>
+          <button class="button primary build-button" id="build-button" type="button" disabled>HTML’i koru <span>↗</span></button>
+        </div>
+      </section>
+
+      <section class="result-panel" id="result-panel" hidden>
+        <div class="result-heading"><div><p class="story-label">BUILD / TAMAMLANDI</p><h2>Çıktınız hazır.</h2></div><a class="button primary" id="download-link" download="dontrea-protected.html">HTML’i indir <span>↓</span></a></div>
+        <div class="result-stats"><span><strong id="script-count">0</strong> satır içi script dönüştürüldü</span><span><strong id="size-reduction">0%</strong> boyut farkı</span><span>İşlem tarayıcınızda yapıldı</span></div>
+        <details class="preview"><summary>Korunan HTML’i görüntüle</summary><pre><code id="output-preview"></code></pre></details>
+      </section>
+
+      <p class="playground-note"><span>WASM / CLIENT-SIDE</span> Kaynak HTML’iniz cihazınızdan ayrılmaz. Bu playground JavaScript dönüşümünü yerel WebAssembly motorunda çalıştırır.</p>
+    </main>
+    <footer><span>by <a href="https://yasireymen.com" target="_blank" rel="noreferrer">Yasir Eymen</a></span><a class="home-link" href="https://yasireymen.com" aria-label="Yasireymen.com ana sayfa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5.5 9v11h13V9M9.5 20v-6h5v6"/></svg></a></footer>
+  </div>
+  <script src="playground.js"></script>
+</body>
+</html>

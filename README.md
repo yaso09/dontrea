@@ -104,6 +104,16 @@ npm install
 npm link
 ```
 
+### Browser Playground
+
+`www/playground.html` transforms inline JavaScript from a selected HTML file in the browser using WebAssembly. Install Javy and project dependencies, then build the playground engine:
+
+```bash
+npm run build:playground-wasm
+```
+
+Deploy `www/dontrea-playground-wasm.js` with the static site. The engine loads only after a visitor selects an HTML file, and the file contents stay in the browser.
+
 ---
 
 ## 🛠️ CLI Usage & Options

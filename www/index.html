@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090d0c">
+  <meta name="description" content="Dontrea, web uygulamalarındaki satır içi JavaScript kodunu dönüştürüp HTML çıktınıza yerleştiren bir komut satırı aracıdır.">
+  <title>Dontrea — Web kodunu koru</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#top"><span class="mark"><i></i><i></i><i></i></span>dontrea<span class="lime">.</span></a>
+      <a class="nav-playground" href="playground.html">Canlı demoyu görün <span>↗</span></a>
+      <a class="github" href="https://github.com/yaso09/dontrea" target="_blank" rel="noreferrer">GitHub <span>↗</span></a>
+    </header>
+    <main id="top">
+      <section class="hero">
+        <canvas class="matrix-bg" aria-hidden="true"></canvas>
+        <div class="hero-copy">
+          <h1>Kodunuz sizin.<br><span>Kontrolü de öyle.</span></h1>
+          <div class="hero-install" id="install" data-copy="npm i -g github:yaso09/dontrea" role="button" tabindex="0" aria-label="npm i -g github:yaso09/dontrea komutunu kopyala"><code>npm i -g github:yaso09/dontrea</code><span class="copy-toast" role="status" aria-live="polite">Kopyalandı</span></div>
+          <p class="lead">Dontrea, web uygulamanızdaki satır içi JavaScript’i dönüştürür, parçalara ayırır ve tek bir HTML çıktısına yerleştirir. Üretim öncesi koruma akışınızı tek komutla çalıştırın.</p>
+          <div class="actions"><a class="button primary" href="playground.html">Canlı demoyu görün <span>↗</span></a><a class="button quiet" href="https://github.com/yaso09/dontrea" target="_blank" rel="noreferrer">GitHub <span>↗</span></a></div>
+          <div class="meta">
+            <span class="meta-item"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3.5 7.5v9L12 21l8.5-4.5v-9L12 3Z"/><path d="m3.8 7.7 8.2 4.5 8.2-4.5M12 12.2V21"/></svg>AÇIK KAYNAK</span>
+            <span class="meta-divider">/</span>
+            <span class="meta-item"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v15M6 7h12M5 20h14M6 7l-3 7h6L6 7Zm12 0-3 7h6l-3-7ZM9 4h6"/><path d="M3 14c.5 1.4 1.5 2 3 2s2.5-.6 3-2m6 0c.5 1.4 1.5 2 3 2s2.5-.6 3-2"/></svg>MIT LİSANSI</span>
+          </div>
+        </div>
+      </section>
+      <section class="section demo" id="terminal">
+        <div class="demo-intro"><p class="story-label">DONTREA / UÇTAN UCA</p><h2>Kurulumdan<br><em>korunan çıktıya.</em></h2><p>Komutları ve koruma seçeneklerini, terminalde adım adım izleyin.</p></div>
+        <div class="demo-steps" aria-label="Dontrea kurulum ve özellik anlatımı">
+          <article class="demo-step is-reversed is-active" data-demo="install">
+            <div class="terminal demo-terminal" aria-label="Dontrea kurulum komutları"><div class="terminal-head"><span class="terminal-title">TERMINAL — SETUP</span><span class="window-controls" aria-label="Pencere kontrolleri"><i class="close" title="Kapat"></i><i class="minimize" title="Küçült"></i><i class="maximize" title="Büyüt"></i></span></div><pre class="terminal-output" aria-live="off"></pre></div>
+            <div class="demo-copy"><span class="story-marker"></span><div><p class="story-label">KURULUM / GEREKSİNİMLER</p><h3>Önce çalışma<br>ortamını hazırlayın.</h3><p>Dontrea, Node.js 18 veya üzeriyle çalışır. Projeyi klonlayıp bağımlılıkları kurun; `npm link` komutuyla `dontrea` komutunu terminalden erişilebilir yapın. WebAssembly derlemesi için Javy isteğe bağlıdır.</p></div></div>
+          </article>
+          <article class="demo-step" data-demo="single">
+            <div class="terminal demo-terminal" aria-label="Tek HTML dosyasını koruma terminal örneği"><div class="terminal-head"><span class="terminal-title">TERMINAL — SINGLE FILE</span><span class="window-controls" aria-label="Pencere kontrolleri"><i class="close" title="Kapat"></i><i class="minimize" title="Küçült"></i><i class="maximize" title="Büyüt"></i></span></div><pre class="terminal-output" aria-live="off"></pre></div>
+            <div class="demo-copy"><span class="story-marker"></span><div><p class="story-label">TEK DOSYA</p><h3>Kaynağı seçin,<br>çıktıyı belirleyin.</h3><p>`-i` giriş HTML’ini, `-o` korunan çıktı yolunu belirtir. `-p` payload’ı kaç gizli parçaya böleceğini ayarlar. Komut satırı parametreleriyle tek sayfayı hemen derleyebilirsiniz.</p></div></div>
+          </article>
+          <article class="demo-step is-reversed" data-demo="config">
+            <div class="terminal demo-terminal" aria-label="dontrea.json oluşturma ve toplu derleme terminal örneği"><div class="terminal-head"><span class="terminal-title">TERMINAL — PROJECT BUILD</span><span class="window-controls" aria-label="Pencere kontrolleri"><i class="close" title="Kapat"></i><i class="minimize" title="Küçült"></i><i class="maximize" title="Büyüt"></i></span></div><pre class="terminal-output" aria-live="off"></pre></div>
+            <div class="demo-copy"><span class="story-marker"></span><div><p class="story-label">PROJE YAPILANDIRMASI</p><h3>Birden fazla sayfayı<br>tek seferde derleyin.</h3><p>`dontrea config add`, dosya başına giriş, çıktı ve koruma ayarlarını `dontrea.json` içine kaydeder. Yapılandırma yoksa oluşturur. Sonra `dontrea build` listedeki bütün HTML dosyalarını sırayla işler.</p></div></div>
+          </article>
+          <article class="demo-step" data-demo="obfuscation">
+            <div class="terminal demo-terminal" aria-label="JavaScript koruma seçenekleri terminal örneği"><div class="terminal-head"><span class="terminal-title">TERMINAL — CODE SHIELD</span><span class="window-controls" aria-label="Pencere kontrolleri"><i class="close" title="Kapat"></i><i class="minimize" title="Küçült"></i><i class="maximize" title="Büyüt"></i></span></div><pre class="terminal-output" aria-live="off"></pre></div>
+            <div class="demo-copy"><span class="story-marker"></span><div><p class="story-label">JAVASCRIPT KORUMASI</p><h3>Koruma katmanlarını<br>ihtiyacınıza göre seçin.</h3><p>Kontrol akışı düzleştirme, ölü kod enjeksiyonu, self-defending ve geliştirici aracı korumasını açın. `--domain-lock` ile kodun çalışacağı alan adlarını sınırlayın; parçalama sayısını ve eşikleri ayarlayın.</p></div></div>
+          </article>
+          <article class="demo-step is-reversed" data-demo="runtime">
+            <div class="terminal demo-terminal" aria-label="Wasm ve Safe-Fallback çalışma modları terminal örneği"><div class="terminal-head"><span class="terminal-title">TERMINAL — RUNTIME</span><span class="window-controls" aria-label="Pencere kontrolleri"><i class="close" title="Kapat"></i><i class="minimize" title="Küçült"></i><i class="maximize" title="Büyüt"></i></span></div><pre class="terminal-output" aria-live="off"></pre></div>
+            <div class="demo-copy"><span class="story-marker"></span><div><p class="story-label">WASM / SAFE-FALLBACK</p><h3>Motor çalışma<br>kodunuza uyum sağlar.</h3><p>Javy kullanılabiliyorsa Dontrea JavaScript’i WebAssembly’e derleyebilir. Canvas ve ses gibi tarayıcı API’lerini saptadığında otomatik olarak Safe-Fallback JS modunu seçer. İsterseniz `--force-wasm` ile derlemeyi zorlayın ya da `--no-wasm` ile Wasm’ı kapatın.</p></div></div>
+          </article>
+          <article class="demo-step" data-demo="output">
+            <div class="terminal demo-terminal" aria-label="Wasm seçenekleri ve korunan çıktı terminal örneği"><div class="terminal-head"><span class="terminal-title">TERMINAL — OUTPUT</span><span class="window-controls" aria-label="Pencere kontrolleri"><i class="close" title="Kapat"></i><i class="minimize" title="Küçült"></i><i class="maximize" title="Büyüt"></i></span></div><pre class="terminal-output" aria-live="off"></pre></div>
+            <div class="demo-copy"><span class="story-marker"></span><div><p class="story-label">PAKETLEME / ÇIKTI</p><h3>Tek HTML dosyası,<br>dağıtıma hazır.</h3><p>Dontrea kodu HTML içine parçalı olarak yerleştirir ve yapıyı sıkıştırır. `--dynamic` Javy’nin dinamik sağlayıcısını seçer; `--wasm-binary` önceden derlenmiş bir Wasm dosyasını gömer. Sonuç, belirlediğiniz konuma yazılan tek HTML çıktısıdır.</p></div></div>
+          </article>
+        </div>
+      </section>
+      <section class="playground-cta" aria-labelledby="playground-title">
+        <div>
+          <p class="story-label">DONTREA / PLAYGROUND</p>
+          <h2 id="playground-title">Kendi HTML’inizde<br><em>hemen deneyin.</em></h2>
+          <p>Bir HTML dosyası yükleyin. Dontrea’nın WebAssembly çekirdeği satır içi JavaScript’i tarayıcınızda dönüştürsün.</p>
+        </div>
+        <a class="button primary" href="playground.html">Playground’u aç <span>↗</span></a>
+      </section>
+    </main>
+    <footer><span>by <a href="https://yasireymen.com" target="_blank" rel="noreferrer">Yasir Eymen</a></span><a class="home-link" href="https://yasireymen.com" aria-label="Yasireymen.com ana sayfa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5.5 9v11h13V9M9.5 20v-6h5v6"/></svg></a></footer>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>

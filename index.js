@@ -8,6 +8,7 @@ const { program } = require('commander');
 const cheerio = require('cheerio');
 const chalk = require('chalk');
 const JavaScriptObfuscator = require('javascript-obfuscator');
+const { obfuscateDontreaCode } = require('./lib/obfuscation-core');
 const { minify } = require('html-minifier-terser');
 
 // ─── Javy CLI Detection ───
@@ -2657,27 +2658,12 @@ async function runPipeline(options) {
         }
 
         // 3. JavaScript Obfuscation
-        const obfuscatorConfig = {
-            compact: true,
-            numbersToExpressions: true,
-            stringArray: true,
-            stringArrayThreshold: 0.8,
-            controlFlowFlattening: options.controlFlowFlattening,
-            controlFlowFlatteningThreshold: parseFloat(options.controlFlowFlatteningThreshold),
-            deadCodeInjection: options.deadCodeInjection,
-            debugProtection: options.debugProtection,
-            debugProtectionInterval: parseInt(options.debugProtectionInterval),
-            selfDefending: options.selfDefending
-        };
-
         if (options.domainLock && options.domainLock.length > 0) {
-            obfuscatorConfig.domainLock = options.domainLock;
             console.log(chalk.blue(`[+] Domain lock activated for: ${options.domainLock.join(', ')}`));
         }
 
         console.log(chalk.green(`[+] Obfuscating JavaScript payload...`));
-        const obfuscatedResult = JavaScriptObfuscator.obfuscate(combinedJsCode, obfuscatorConfig);
-        const targetJsPayload = obfuscatedResult.getObfuscatedCode();
+        const targetJsPayload = obfuscateDontreaCode(JavaScriptObfuscator, combinedJsCode, options);
 
         // 4. Wasm Compilation / Payload Preparation
         let wasmBytes = null;

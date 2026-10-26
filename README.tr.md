@@ -104,6 +104,16 @@ npm install
 npm link
 ```
 
+### Tarayıcı Playground'ı
+
+`www/playground.html`, seçilen HTML dosyasındaki satır içi JavaScript'i tarayıcıda WebAssembly ile dönüştürür. Playground motorunu derlemek için Javy kurulu olmalı ve bağımlılıklar yüklenmiş olmalıdır:
+
+```bash
+npm run build:playground-wasm
+```
+
+Bu komut, dağıtımda `www/dontrea-playground-wasm.js` dosyasını da yayımlamanızı gerektirir. Motor yalnızca ziyaretçi bir HTML dosyası seçtiğinde yüklenir; dosyanın içeriği sunucuya gönderilmez.
+
 ---
 
 ## 🛠️ Kullanım ve Parametre Tablosu
