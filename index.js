@@ -2651,7 +2651,7 @@ if (process.argv[2] !== 'build' && process.argv[2] !== 'config') {
 
 async function runPipeline(options) {
     console.log(chalk.cyan.bold('\n🛡️  Dontrea Anti-Piracy Protection Pipeline starting...'));
-    
+
     // Check Javy compiler availability
     const hasJavy = checkJavy();
     if (hasJavy) {
@@ -2661,7 +2661,7 @@ async function runPipeline(options) {
         console.log(chalk.blue(`[i] Install via: npm install -g @shopify/javy-cli or download from github.com/Shopify/javy/releases`));
         console.log(chalk.blue(`[i] Safe-Fallback (obfuscated JavaScript) will be used if no Wasm binary is provided.`));
     }
-    
+
     if (!fs.existsSync(options.input)) {
         throw new Error(`Input file not found at ${options.input}`);
     }
@@ -2680,13 +2680,13 @@ async function runPipeline(options) {
     let isWasm = false;
     let chunks = [];
     const partCount = parseInt(options.parts) || 5;
-    
+
     // 1. Script Extraction
     $('script').each((index, element) => {
         const el = $(element);
         if (!el.attr('src') && el.html() && el.html().trim().length > 0) {
             combinedJsCode += el.html() + "\n";
-            el.remove(); 
+            el.remove();
         }
     });
 
@@ -2698,7 +2698,7 @@ async function runPipeline(options) {
         // 2. Static Analysis: Detect browser hardware/media APIs
         const browserApiIssues = analyzeCodeForBrowserSpecificAPIs(combinedJsCode);
         const hasHardwareMediaAPIs = browserApiIssues.length > 0;
-        
+
         if (hasHardwareMediaAPIs) {
             console.log(chalk.yellow(`[!] Browser hardware/media APIs detected in script:`));
             for (const issue of browserApiIssues) {
@@ -2742,24 +2742,24 @@ async function runPipeline(options) {
         else if (hasJavy && !options.noWasm && (!hasHardwareMediaAPIs || options.forceWasm)) {
             try {
                 console.log(chalk.green(`[+] Compiling JavaScript to WebAssembly via Javy (${javyVersion})...`));
-                
+
                 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dontrea-javy-'));
                 const inputFile = path.join(tmpDir, 'input.js');
                 const outputFile = path.join(tmpDir, 'output.wasm');
-                
+
                 // Combine Javy transparent browser bridge with obfuscated JS wrapped in an IIFE
                 // Wrapping in an IIFE avoids ES Module duplicate lexical declaration errors
                 const sourceForWasm = `${JAVY_BROWSER_BRIDGE}\n(function() {\n${targetJsPayload}\n}).call(typeof globalThis !== 'undefined' ? globalThis : this);\n`;
                 fs.writeFileSync(inputFile, sourceForWasm, 'utf8');
-                
+
                 const dynamicFlag = options.dynamic ? '-d' : '';
                 const cmd = `javy compile ${dynamicFlag} "${inputFile}" -o "${outputFile}"`;
-                
+
                 execSync(cmd, {
                     stdio: ['ignore', 'pipe', 'pipe'],
                     timeout: 180000,
                 });
-                
+
                 if (fs.existsSync(outputFile)) {
                     wasmBytes = new Uint8Array(fs.readFileSync(outputFile));
                     finalPayloadBase64 = Buffer.from(wasmBytes).toString('base64');
@@ -2768,7 +2768,7 @@ async function runPipeline(options) {
                 } else {
                     throw new Error('Javy did not produce output.wasm');
                 }
-                
+
                 fs.rmSync(tmpDir, { recursive: true, force: true });
             } catch (wasmError) {
                 console.log(chalk.yellow(`[!] Javy compilation failed: ${wasmError.message}`));
@@ -2801,7 +2801,7 @@ async function runPipeline(options) {
             const randomTag = HTML_TAGS[Math.floor(Math.random() * HTML_TAGS.length)];
             const elementId = `dontrea-_0x${Math.random().toString(16).substring(2, 8)}`;
             const attrName = `data-node-_0x${Math.random().toString(16).substring(2, 8)}`;
-            
+
             $('body').append(`<${randomTag} id="${elementId}" ${attrName}="${chunk}" class="dontrea-hidden" aria-hidden="true" tabindex="-1"></${randomTag}>`);
             hiddenSelectors.push({ id: elementId, attr: attrName });
         });
@@ -2843,7 +2843,7 @@ async function runPipeline(options) {
     // 7. HTML Minification
     console.log(chalk.green(`[+] Executing structural HTML compression and minification...`));
     const processedHtml = $.html();
-    
+
     try {
         const minifiedHtml = await minify(processedHtml, {
             removeAttributeQuotes: false,
@@ -2861,10 +2861,10 @@ async function runPipeline(options) {
 
         fs.writeFileSync(options.output, minifiedHtml, 'utf8');
         console.log(chalk.green.bold(`[✓] Dontrea pipeline successfully compiled. Output file: ${options.output}\n`));
-        
+
         // Summary Banner
-        const modeStr = isWasm 
-            ? `WebAssembly (UWPE Engine / Javy ${javyVersion || '3.0+'})` 
+        const modeStr = isWasm
+            ? `WebAssembly (UWPE Engine / Javy ${javyVersion || '3.0+'})`
             : 'JS Obfuscation (Safe-Fallback)';
         console.log(chalk.cyan('┌─────────────────────────────────────────────────────────────┐'));
         console.log(chalk.cyan('│                 DONTREA PROTECTION SUMMARY                  │'));
@@ -2872,7 +2872,7 @@ async function runPipeline(options) {
         console.log(chalk.cyan(`│ Mode:     ${modeStr.padEnd(49)} │`));
         console.log(chalk.cyan(`│ Chunks:   ${String(partCount).padStart(2)} │ Parts: ${String(chunks.length).padStart(2)} │ Payload: ${String(finalPayloadBase64.length).padStart(7)} chars │`));
         console.log(chalk.cyan('└─────────────────────────────────────────────────────────────┘\n'));
-        
+
     } catch (minifyError) {
         console.error(chalk.red(`[-] Minification failed: ${minifyError.message}`));
         fs.writeFileSync(options.output, processedHtml, 'utf8');
