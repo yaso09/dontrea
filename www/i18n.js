@@ -3,7 +3,7 @@
     tr: {
       title: 'Dontrea — Web kodunu koru',
       description: 'Dontrea, web uygulamalarındaki satır içi JavaScript kodunu dönüştürüp HTML çıktınıza yerleştiren bir komut satırı aracıdır.',
-      languageLabel: 'Dil',
+      languageLabel: 'Dil', footerCredit: 'by <a href="https://yasireymen.com" target="_blank" rel="noreferrer">Yasir Eymen</a>',
       homeNav: 'Canlı demoyu görün <span>↗</span>', demoButton: 'Canlı demoyu görün <span>↗</span>',
       heroTitle: 'Kodunuz sizin.<br><span>Kontrolü de öyle.</span>',
       copyLabel: 'npm i -g github:yaso09/dontrea komutunu kopyala', copied: 'Kopyalandı', copyFailed: 'Kopyalanamadı',
@@ -43,7 +43,7 @@
     en: {
       title: 'Dontrea — Protect your web code',
       description: 'Dontrea transforms inline JavaScript in web applications and packages it into a single HTML output.',
-      languageLabel: 'Language',
+      languageLabel: 'Language', footerCredit: 'by <a href="https://yasireymen.com" target="_blank" rel="noreferrer">Yasir Eymen</a>',
       homeNav: 'Try the live demo <span>↗</span>', demoButton: 'Try the live demo <span>↗</span>',
       heroTitle: 'Your code.<br><span>Your control.</span>',
       copyLabel: 'Copy npm i -g github:yaso09/dontrea command', copied: 'Copied', copyFailed: 'Could not copy',
@@ -79,13 +79,55 @@
       buildError: 'Something went wrong while building.', completed: (count) => `${count} inline scripts transformed with the Wasm engine.`,
       wasmMissing: 'The WebAssembly bundle is empty.', wasmUnavailable: 'Could not load the WebAssembly bundle. Open this page from a web server and try again.',
       gzipUnavailable: 'This browser does not support gzip decompression. Please try a recent browser.', transformFailed: 'Wasm transformation failed.'
+    },
+    ar: {
+      title: 'دونتريا — احمِ كود الويب',
+      description: 'تحوّل دونتريا جافاسكريبت المضمّنة في تطبيقات الويب وتضمّنها في ملف HTML واحد.',
+      languageLabel: 'اللغة', footerCredit: 'بواسطة <a href="https://yasireymen.com" target="_blank" rel="noreferrer">ياسر أيمن</a>',
+      homeNav: 'جرّب العرض المباشر <span>↗</span>', demoButton: 'جرّب العرض المباشر <span>↗</span>',
+      heroTitle: 'كودك لك.<br><span>والتحكّم لك أيضًا.</span>',
+      copyLabel: 'انسخ الأمر npm i -g github:yaso09/dontrea', copied: 'تم النسخ', copyFailed: 'تعذّر النسخ',
+      lead: 'تحوّل دونتريا جافاسكريبت المضمّنة في تطبيق الويب، وتقسّمها إلى أجزاء، وتضمّنها في ملف HTML واحد. شغّل مسار الحماية قبل الإنتاج بأمر واحد.',
+      openSource: 'مفتوح المصدر', mit: 'رخصة MIT',
+      demoLabel: 'دونتريا / من البداية إلى النهاية', demoTitle: 'من الإعداد إلى<br><em>الملف المحمي.</em>', demoIntro: 'تابع الأوامر وخيارات الحماية خطوة بخطوة في الطرفية.',
+      demoAria: 'شرح تثبيت دونتريا وميزاته',
+      demoLabels: ['التثبيت / المتطلبات', 'ملف واحد', 'إعداد المشروع', 'حماية جافاسكريبت', 'WASM / الوضع البديل الآمن', 'التجميع / الإخراج'],
+      demoTitles: ['جهّز بيئة العمل<br>أولًا.', 'اختر ملف المصدر،<br>وحدّد الإخراج.', 'ابنِ عدة صفحات<br>في تشغيل واحد.', 'اختر طبقات الحماية<br>التي تحتاجها.', 'يتكيّف المحرك<br>مع كودك.', 'ملف HTML واحد،<br>جاهز للنشر.'],
+      demoCopy: [
+        'تعمل دونتريا مع Node.js 18 أو أحدث. استنسخ المشروع وثبّت الاعتماديات، ثم شغّل <code>npm link</code> لإتاحة الأمر <code>dontrea</code> في الطرفية. Javy اختياري لبناء WebAssembly.',
+        'يحدّد <code>-i</code> ملف HTML المُدخل، ويحدّد <code>-o</code> مسار الملف المحمي. يضبط <code>-p</code> عدد الأجزاء المخفية التي تحتوي الحمولة. ابنِ صفحة واحدة بخيارات سطر الأوامر.',
+        'يحفظ <code>dontrea config add</code> إعدادات الإدخال والإخراج والحماية لكل ملف في <code>dontrea.json</code>، وينشئ الملف عند الحاجة. ثم يعالج <code>dontrea build</code> كل ملفات HTML المدرجة بالتتابع.',
+        'فعّل تسطيح تدفق التحكم وحقن الشيفرة الميتة والحماية الذاتية وحماية أدوات المطور. استخدم <code>--domain-lock</code> لتقييد النطاقات التي يعمل عليها الكود، واضبط عدد الأجزاء والحدود.',
+        'عند توفر Javy، تستطيع دونتريا ترجمة جافاسكريبت إلى WebAssembly. تنتقل تلقائيًا إلى وضع Safe-Fallback عند اكتشاف واجهات المتصفح مثل Canvas أو الصوت. استخدم <code>--force-wasm</code> لفرض الترجمة أو <code>--no-wasm</code> لتعطيل Wasm.',
+        'تضمّن دونتريا الكود في أجزاء داخل HTML وتضغط المستند. يختار <code>--dynamic</code> مزوّد Javy الديناميكي، بينما يضمّن <code>--wasm-binary</code> ملف Wasm مُسبق الترجمة. الناتج ملف HTML واحد في المسار الذي تحدده.'
+      ],
+      setupTerminal: 'الطرفية — الإعداد', singleTerminal: 'الطرفية — ملف واحد', projectTerminal: 'الطرفية — بناء المشروع', shieldTerminal: 'الطرفية — حماية الكود', runtimeTerminal: 'الطرفية — بيئة التشغيل', outputTerminal: 'الطرفية — الإخراج',
+      installAria: 'أوامر تثبيت دونتريا', singleAria: 'مثال طرفية لحماية ملف HTML واحد', configAria: 'مثال طرفية لإنشاء dontrea.json وبناء عدة ملفات', obfuscationAria: 'مثال طرفية لخيارات حماية جافاسكريبت', runtimeAria: 'مثال طرفية لوضعي Wasm وSafe-Fallback', outputAria: 'مثال طرفية لخيارات Wasm والملف المحمي',
+      ctaLabel: 'دونتريا / ساحة التجربة', ctaTitle: 'جرّبها على ملف<br><em>HTML الخاص بك.</em>', ctaCopy: 'ارفع ملف HTML ودع نواة دونتريا المبنية على WebAssembly تحوّل جافاسكريبت المضمّنة في متصفحك.', ctaButton: 'افتح ساحة التجربة <span>↗</span>',
+      footerHome: 'الصفحة الرئيسية لموقع Yasireymen.com',
+      playgroundTitle: 'ساحة التجربة — دونتريا', playgroundDescription: 'حوّل جافاسكريبت المضمّنة في ملف HTML باستخدام WebAssembly داخل المتصفح عبر ساحة تجربة دونتريا.',
+      homeLabel: 'الصفحة الرئيسية لدونتريا', back: '→ العودة إلى الصفحة الرئيسية', pageTitle: 'جرّب الحماية<br><em>هنا مباشرة.</em>',
+      pageIntro: 'اختر ملف HTML ودع نواة دونتريا المبنية على WebAssembly تحوّل جافاسكريبت المضمّنة في متصفحك. لا يُرفع ملفك إلى أي خادم.',
+      workbench: 'ساحة تجربة حماية HTML', chooseFile: 'اختر ملفًا', engineTag: 'محلي / WEBASSEMBLY', dropFile: 'أفلت ملف HTML هنا', browse: 'أو انقر لاختيار ملف · HTML / HTM',
+      options: 'خيارات الحماية', parts: 'أجزاء الحمولة', domain: 'تقييد النطاق <small>(اختياري)</small>', control: 'تسطيح تدفق التحكم', dead: 'حقن الشيفرة الميتة', debug: 'الحماية من أدوات المطور', self: 'بنية ذاتية الحماية',
+      initialMessage: 'اختر ملف HTML عندما تكون مستعدًا.', build: 'احمِ ملف HTML <span>↗</span>', resultLabel: 'اكتمل البناء', resultTitle: 'ملفك جاهز.', download: 'نزّل ملف HTML <span>↓</span>',
+      scriptsTransformed: 'نصوص مضمّنة تم تحويلها', sizeDifference: 'تغيّر الحجم', processedLocally: 'تمت المعالجة في متصفحك', preview: 'اعرض ملف HTML المحمي',
+      privacy: 'يبقى ملف HTML الأصلي على جهازك. تحوّل ساحة التجربة جافاسكريبت باستخدام محرك WebAssembly محلي.', privacyLabel: 'WASM / داخل المتصفح',
+      statusLoading: 'جارٍ تحميل محرك WASM', statusReady: 'محرك WASM جاهز', statusError: 'تعذّر تحميل محرك WASM', statusBuildError: 'فشل البناء',
+      copyFileSize: (size) => `${size} كيلوبايت · ستتم المعالجة على جهازك.`, invalidFile: 'اختر ملفًا بامتداد .html أو .htm.',
+      loadingMessage: 'تتم معالجة الملف في متصفحك. قد تستغرق ملفات HTML الكبيرة وقتًا أطول قليلًا.', noScripts: 'لا توجد شيفرة جافاسكريبت مضمّنة للتحويل في هذا الملف.',
+      buildError: 'حدث خطأ أثناء البناء.', completed: (count) => `تم تحويل ${count} من النصوص المضمّنة بواسطة محرك Wasm.`,
+      wasmMissing: 'حزمة WebAssembly فارغة.', wasmUnavailable: 'تعذّر تحميل حزمة WebAssembly. افتح الصفحة من خادم ويب ثم حاول مجددًا.',
+      gzipUnavailable: 'هذا المتصفح لا يدعم فك ضغط gzip. جرّب متصفحًا حديثًا.', transformFailed: 'فشل تحويل Wasm.'
     }
   };
 
   const isPlayground = document.body.classList.contains('playground-page');
   const savedLanguage = localStorage.getItem('dontrea-language');
   const browserLanguage = navigator.languages?.[0] || navigator.language || 'tr';
-  let language = savedLanguage || (browserLanguage.toLowerCase().startsWith('en') ? 'en' : 'tr');
+  const browserLocale = browserLanguage.toLowerCase();
+  const detectedLanguage = browserLocale.startsWith('ar') ? 'ar' : browserLocale.startsWith('en') ? 'en' : 'tr';
+  let language = Object.hasOwn(copy, savedLanguage) ? savedLanguage : detectedLanguage;
   const dict = () => copy[language];
   const setHtml = (selector, value, root = document) => {
     const element = root.querySelector(selector);
@@ -99,6 +141,7 @@
   function applyLanguage() {
     const t = dict();
     document.documentElement.lang = language;
+    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
     document.title = isPlayground ? t.playgroundTitle : t.title;
     const description = document.querySelector('meta[name="description"]');
     if (description) description.content = isPlayground ? t.playgroundDescription : t.description;
@@ -108,6 +151,7 @@
       languageSelect.setAttribute('aria-label', t.languageLabel);
       languageSelect.parentElement?.querySelector('.visually-hidden')?.replaceChildren(t.languageLabel);
     }
+    setHtml('.footer-credit', t.footerCredit);
     setHtml('.nav-playground', t.homeNav);
     setHtml('.actions .primary', t.demoButton);
     if (!isPlayground) {
@@ -175,7 +219,7 @@
     t(key, ...args) { const value = dict()[key]; return typeof value === 'function' ? value(...args) : (value ?? key); }
   };
   document.querySelector('#language-select')?.addEventListener('change', (event) => {
-    language = event.currentTarget.value === 'en' ? 'en' : 'tr';
+    language = Object.hasOwn(copy, event.currentTarget.value) ? event.currentTarget.value : 'tr';
     localStorage.setItem('dontrea-language', language);
     applyLanguage();
   });
