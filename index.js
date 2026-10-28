@@ -27,13 +27,9 @@ function checkJavy() {
     }
 }
 
-// ─── Browser Hardware / Media API Detection ───
-// Headless WebAssembly environments (like QuickJS inside Javy) cannot directly drive
-// audio output devices (Web Audio API / AudioContext) or GPU render pipelines (Canvas 2D / WebGL)
-// without native host execution.
-const BROWSER_ONLY_APIS = [
-    { pattern: /\b(AudioContext|webkitAudioContext)\b/, name: 'Web Audio API (AudioContext)', reason: 'Headless Wasm cannot emulate audio hardware' },
-];
+// Browser APIs supported by the host bridge can execute from Wasm. Keep this list
+// for APIs that still cannot be routed to a browser host.
+const BROWSER_ONLY_APIS = [];
 
 function analyzeCodeForBrowserSpecificAPIs(code) {
     const issues = [];
@@ -80,6 +76,7 @@ const JAVY_BROWSER_BRIDGE = `
 
     // ─── Wasm Handle & Proxy Registry ───
     const handleProxyCache = new Map();
+    const audioChannelCache = new Map();
     const wasmCallbacks = new Map();
     const wasmListeners = new Map(); // handleId -> Map(eventType -> Set(listeners))
     let nextCallbackId = 1;
@@ -472,6 +469,19 @@ const JAVY_BROWSER_BRIDGE = `
                 if (prop === '__type__') return t.__type__;
                 if (prop === 'then') return undefined;
 
+                // Audio PCM is kept as a local typed array while Wasm code edits it.
+                // The host buffer is synchronized in one message when assigned to a source.
+                if (t.__type__ === 'AudioBuffer' && prop === 'getChannelData') {
+                    return function(channel) {
+                        const key = t.__handle__ + ':' + Number(channel);
+                        if (!audioChannelCache.has(key)) {
+                            const result = __wireCall({ op: 'CALL', h: t.__handle__, method: 'getChannelData', args: [Number(channel)] });
+                            audioChannelCache.set(key, deserializeResult(result.result));
+                        }
+                        return audioChannelCache.get(key);
+                    };
+                }
+
                 if (prop === 'setProperty') {
                     return function(p, val, priority) {
                         if (isReadOnly) return;
@@ -734,6 +744,8 @@ const JAVY_BROWSER_BRIDGE = `
 
                 // Handle 1 (Window) Self-references and BOM Singletons
                 if (t.__handle__ === 1) {
+                    if (audioConstructors.includes(String(prop))) return global[String(prop)];
+                    if (prop === 'webkitAudioContext') return global.AudioContext;
                     if (prop === 'window' || prop === 'self' || prop === 'top' || prop === 'parent' || prop === 'frames') {
                         return proxy;
                     }
@@ -921,6 +933,15 @@ const JAVY_BROWSER_BRIDGE = `
                 return deserializeResult(res.result);
             },
             set(t, prop, val, receiver) {
+                if (t.__type__ === 'AudioBufferSourceNode' && prop === 'buffer' && val && val.__handle__) {
+                    const channels = [];
+                    const count = Number(val.numberOfChannels) || 0;
+                    for (let channel = 0; channel < count; channel++) {
+                        const data = audioChannelCache.get(val.__handle__ + ':' + channel);
+                        if (data) channels.push({ channel, data: serializeArg(data) });
+                    }
+                    if (channels.length) __wireCall({ op: 'SYNC_AUDIO_BUFFER', h: val.__handle__, channels });
+                }
                 if (t.__handle__ === 3 && prop === 'href') {
                     const res = __wireCall({ op: 'SET', h: 3, prop: 'href', val: String(val) });
                     return !res.error;
@@ -1296,6 +1317,32 @@ const JAVY_BROWSER_BRIDGE = `
         } catch(e) {}
         return Constructor;
     }
+
+    // Web Audio constructors are host constructors; these wrappers preserve new semantics.
+    function createHostConstructor(className) {
+        const Constructor = function(...args) {
+            if (!new.target) throw new TypeError("Failed to construct '" + className + "': Please use the 'new' operator");
+            const result = __wireCall({ op: 'NEW_CONSTRUCT', h: 1, method: className, args: args.map(serializeArg) });
+            if (result.error) throw new TypeError(result.error);
+            return deserializeResult(result.result);
+        };
+        try {
+            Object.defineProperty(Constructor, 'name', { value: className });
+            Object.defineProperty(Constructor, Symbol.hasInstance, { value: (value) => !!value && value.__type__ === className });
+        } catch(e) {}
+        return Constructor;
+    }
+
+    const audioConstructors = [
+        'AudioContext', 'OfflineAudioContext', 'AudioNode', 'AudioParam', 'AudioBuffer',
+        'AudioBufferSourceNode', 'GainNode', 'OscillatorNode', 'BiquadFilterNode', 'AnalyserNode',
+        'DynamicsCompressorNode', 'StereoPannerNode', 'DelayNode', 'WaveShaperNode', 'ConvolverNode',
+        'PannerNode', 'IIRFilterNode', 'ChannelSplitterNode', 'ChannelMergerNode', 'ConstantSourceNode',
+        'PeriodicWave', 'AudioWorklet', 'AudioListener', 'AudioDestinationNode',
+        'MediaElementAudioSourceNode', 'MediaStreamAudioSourceNode'
+    ];
+    for (const name of audioConstructors) global[name] = createHostConstructor(name);
+    global.webkitAudioContext = global.AudioContext;
 
     // ─── Auxiliary Interface Constructors (NodeFilter, Range) ───
     function createNodeFilter() {
@@ -2155,6 +2202,12 @@ function generateWasmBootstrapInline(hiddenSelectors, isWasm) {
                                             }
                                         } else if (cmd.op === 'SET') {
                                             target[cmd.prop] = resolve(cmd.val);
+                                            response.result = true;
+                                        } else if (cmd.op === 'SYNC_AUDIO_BUFFER') {
+                                            const audioBuffer = handleToObject.get(cmd.h);
+                                            for (const channel of cmd.channels || []) {
+                                                audioBuffer.copyToChannel(resolve(channel.data), channel.channel, 0);
+                                            }
                                             response.result = true;
                                         } else if (cmd.op === 'CALL') {
                                             const method = target[cmd.method];
