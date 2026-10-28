@@ -4,6 +4,7 @@
   const dropZone = $('#drop-zone');
   const buildButton = $('#build-button');
   const message = $('#build-message');
+  const t = (key, ...args) => window.DontreaI18n?.t(key, ...args) || key;
   let wasmGzipBase64 = window.DONTREA_PLAYGROUND_WASM_GZIP_BASE64;
   let wasmBundlePromise = null;
   let selectedFile = null;
@@ -30,13 +31,13 @@
         script.onload = () => {
           wasmGzipBase64 = window.DONTREA_PLAYGROUND_WASM_GZIP_BASE64;
           if (wasmGzipBase64) resolve();
-          else reject(new Error('WebAssembly paketi dosyası boş.'));
+          else reject(new Error(t('wasmMissing')));
         };
-        script.onerror = () => reject(new Error('WebAssembly paketi yüklenemedi. Sayfayı bir web sunucusundan açıp yeniden deneyin.'));
+        script.onerror = () => reject(new Error(t('wasmUnavailable')));
         document.head.append(script);
       }));
       wasmPromise = loadBundle.then(async () => {
-        if (typeof DecompressionStream === 'undefined') throw new Error('Bu tarayıcı gzip açmayı desteklemiyor; güncel bir tarayıcıyla yeniden deneyin.');
+        if (typeof DecompressionStream === 'undefined') throw new Error(t('gzipUnavailable'));
         const compressed = base64ToBytes(wasmGzipBase64);
         const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
         const wasmBytes = await new Response(stream).arrayBuffer();
@@ -111,27 +112,37 @@
     let cursor = 0;
     for (const part of outputParts) { output.set(part, cursor); cursor += part.length; }
     const result = JSON.parse(new TextDecoder().decode(output));
-    if (!result.ok) throw new Error(result.error || 'Wasm dönüşümü başarısız oldu.');
+    if (!result.ok) throw new Error(result.error || t('transformFailed'));
     return result.code;
   }
 
   function updateFile(file) {
     if (!file) return;
     if (!/\.html?$/i.test(file.name) && file.type !== 'text/html') {
-      message.textContent = 'Lütfen .html veya .htm dosyası seçin.';
+      message.textContent = t('invalidFile');
       return;
     }
     selectedFile = file;
     $('#file-name').textContent = file.name;
-    message.textContent = `${(file.size / 1024).toFixed(1)} KB · dosya cihazınızda işlenecek.`;
+    message.textContent = t('copyFileSize', (file.size / 1024).toFixed(1));
     buildButton.disabled = false;
     $('#result-panel').hidden = true;
-    setStatus('WASM MOTORU YÜKLENİYOR');
-    getWasm().then(() => setStatus('WASM MOTORU HAZIR')).catch((error) => {
-      setStatus('WASM MOTORU YÜKLENEMEDİ', 'error');
+    setStatus(t('statusLoading'));
+    getWasm().then(() => setStatus(t('statusReady'))).catch((error) => {
+      setStatus(t('statusError'), 'error');
       message.textContent = error.message;
     });
   }
+
+  window.addEventListener('dontrea:languagechange', () => {
+    if (selectedFile) {
+      $('#file-name').textContent = selectedFile.name;
+      message.textContent = $('#result-panel').hidden
+        ? t('copyFileSize', (selectedFile.size / 1024).toFixed(1))
+        : t('completed', Number($('#script-count').textContent) || 0);
+      setStatus(t('statusReady'));
+    }
+  });
 
   function createProtectedHtml(source, protectedCode, partsCount) {
     const doc = new DOMParser().parseFromString(source, 'text/html');
@@ -179,13 +190,13 @@
   buildButton.addEventListener('click', async () => {
     if (!selectedFile) return;
     buildButton.disabled = true;
-    buildButton.innerHTML = 'WASM ile dönüştürülüyor <span>…</span>';
-    message.textContent = 'Dosya tarayıcınızda işleniyor; büyük HTML dosyaları biraz daha uzun sürebilir.';
+    buildButton.innerHTML = `${t('statusLoading')} <span>…</span>`;
+    message.textContent = t('loadingMessage');
     try {
       const original = await selectedFile.text();
       const doc = new DOMParser().parseFromString(original, 'text/html');
       const scripts = [...doc.querySelectorAll('script:not([src])')].filter((script) => script.textContent.trim());
-      if (!scripts.length) throw new Error('HTML dosyasında dönüştürülecek satır içi JavaScript bulunamadı.');
+      if (!scripts.length) throw new Error(t('noScripts'));
       const code = scripts.map((script) => script.textContent).join('\n');
       const domains = $('#domain-lock').value.split(',').map((part) => part.trim()).filter(Boolean);
       const obfuscated = await transform(code, {
@@ -209,15 +220,15 @@
       $('#size-reduction').textContent = `${before ? Math.round((1 - after / before) * 100) : 0}%`;
       $('#output-preview').textContent = result.html;
       $('#result-panel').hidden = false;
-      message.textContent = `${result.scriptCount} satır içi script Wasm motoruyla dönüştürüldü.`;
-      setStatus('WASM MOTORU HAZIR');
+      message.textContent = t('completed', result.scriptCount);
+      setStatus(t('statusReady'));
       $('#result-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) {
-      message.textContent = error.message || 'Build sırasında bir hata oluştu.';
-      setStatus('BUILD TAMAMLANAMADI', 'error');
+      message.textContent = error.message || t('buildError');
+      setStatus(t('statusBuildError'), 'error');
     } finally {
       buildButton.disabled = !selectedFile;
-      buildButton.innerHTML = 'HTML’i koru <span>↗</span>';
+      buildButton.innerHTML = t('build');
     }
   });
 })();

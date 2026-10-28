@@ -17,7 +17,7 @@ document.querySelectorAll("[data-copy]").forEach((item) => {
     }
     const toast = item.querySelector(".copy-toast");
     if (!toast) return;
-    toast.textContent = copied ? "Kopyalandı" : "Kopyalanamadı";
+    toast.textContent = window.DontreaI18n?.t(copied ? "copied" : "copyFailed") || (copied ? "Kopyalandı" : "Kopyalanamadı");
     toast.classList.add("visible");
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 1500);
@@ -178,7 +178,7 @@ if (matrixCanvas && matrixContext) {
   const glyphs = "01<>/{}[]=;:#@*+";
   const sourceLines = [
     "<!doctype html>",
-    "<html lang=\"tr\">",
+    `<html lang="${document.documentElement.lang}">`,
     "  <head>",
     "    <meta charset=\"utf-8\">",
     "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
